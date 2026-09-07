@@ -1,5 +1,9 @@
 # Phase 0 contract
 
+Direction update, 2026-09-07: standalone runtime expansion is paused in favor of
+reusing an existing foundation for Physalia Gyre. This implementation remains an
+experiment; its successful tests do not establish a need for a new platform.
+
 This document describes executable behavior in 0.1.0. `ARCHITECTURE.md` describes
 the larger research program. The public C++ API is experimental.
 

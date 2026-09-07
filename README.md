@@ -4,7 +4,13 @@ A local C++ runtime for persistent subject state, committed transitions, and
 bounded autonomous waking. Part of the Physalia Gyre research program.
 
 **Status: experimental Phase 0, version 0.1.0.** The executable uses a deterministic
-demo backend. Local model inference is the next phase; it is not implemented yet.
+demo backend. Local model inference is not implemented.
+
+**Direction revised after Sasha's review, 2026-09-07:** further standalone kernel
+development is paused. The priority is to build Physalia Gyre on an existing
+runtime and implement only its missing domain mechanisms. Phase 0 is retained
+as an experiment and source of invariant tests, not a decision to maintain a
+second general-purpose agent runtime. See the [reuse decision](docs/RESEARCH-2026-09-07.md#reuse-decision-after-sashas-review).
 
 ## What runs today
 
@@ -77,8 +83,10 @@ claim to be the first agent OS. Its working focus is an embeddable transition
 kernel with an explicit, testable relationship between persistent state, model
 contexts and the authority to commit a successor.
 
-Next: one pinned `libllama` backend, bounded structured generation, persistent
-context and cold reconstruction. KV checkpoint envelopes, cryptographic subject
+Next: evaluate a minimal Physalia integration on Agent-libOS's host/module and
+transaction boundaries, with existing inference infrastructure. A dedicated
+libllama integration in cogg.cpp is deferred until a concrete unmet requirement
+justifies it. KV checkpoint envelopes, cryptographic subject
 signatures, tool-effect settlement, compaction and multi-substrate integration
 remain future work. The original roadmap includes experiments needed to evaluate
 whether these mechanisms improve cognitive continuity.
