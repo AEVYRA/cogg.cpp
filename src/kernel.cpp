@@ -51,10 +51,11 @@ std::optional<millis> read_time(const json& t) {
 }
 json limits_json(Limits l) {
     require(l.min_wake_ms > 0 && l.min_wake_ms <= max_delay && l.max_attempts > 0 &&
-            l.max_attempts <= 1000000 && l.period_ms > 0 && l.period_ms <= max_delay,
+            l.max_attempts <= 1000000 && l.period_ms > 0 && l.period_ms <= max_delay &&
+            l.max_wake_ms >= l.min_wake_ms && l.max_wake_ms <= max_delay,
             "invalid runtime limits");
     return {{"min_wake_ms", l.min_wake_ms}, {"max_attempts", l.max_attempts},
-            {"period_ms", l.period_ms}};
+            {"period_ms", l.period_ms}, {"max_wake_ms", l.max_wake_ms}};
 }
 void validate(const Proposal& p) {
     require(p.kind == "null" || p.kind == "reflection" || p.kind == "speech",
@@ -172,6 +173,92 @@ struct Store::Impl {
         q.bind(1, subject); require(q.row(), "subject not found");
         return json::parse(q.text(0));
     }
+    json clock(const std::string& subject) {
+        Statement q(db, "SELECT id FROM commits WHERE subject=? AND tick=0");
+        q.bind(1, subject); require(q.row(), "subject clock missing");
+        return {{"clock_id", "cogg:commit:" + q.text(0)}, {"origin", q.text(0)},
+                {"grain_epoch", "cogg:committed-transition/v1"}, {"unit", "committed_transition"},
+                {"membership", "verified subject commit parent chain; genesis is coordinate zero"}};
+    }
+    // Every admission spends quota, regardless of its eventual settlement. The
+    // watermark makes a committed wake decision replayable after later attempts.
+    json budget(const std::string& subject, const json& limits, millis now,
+                std::int64_t through = std::numeric_limits<std::int64_t>::max()) {
+        const auto period = limits.at("period_ms").get<millis>();
+        const auto lower = now >= period ? now - period : -1;
+        Statement q(db, "SELECT admitted_at,seq FROM attempts WHERE subject=? AND seq<=? ORDER BY seq");
+        q.bind(1, subject).bind(2, through);
+        std::vector<millis> active;
+        std::optional<millis> last;
+        std::int64_t watermark = 0;
+        while (q.row()) {
+            last = q.number(0); watermark = q.number(1);
+            if (*last > lower) active.push_back(*last);
+        }
+        millis floor_at = now, quota_at = now;
+        if (last) floor_at = std::max(now, add(*last, limits.at("min_wake_ms").get<millis>()));
+        const auto cap = limits.at("max_attempts").get<std::size_t>();
+        if (active.size() >= cap) quota_at = add(active[active.size() - cap], period);
+        return {{"used", active.size()}, {"limit", cap}, {"period_ms", period},
+                {"through_seq", watermark}, {"floor_at", floor_at}, {"quota_at", quota_at},
+                {"eligible_at", std::max(floor_at, quota_at)}};
+    }
+    json wake_plan(const std::string& subject, const json& limits, const Proposal& p,
+                   millis now, std::int64_t through = std::numeric_limits<std::int64_t>::max()) {
+        const auto b = budget(subject, limits, now, through);
+        json reasons = json::array();
+        std::optional<millis> requested, granted;
+        if (p.wake_after_ms) {
+            requested = add(now, *p.wake_after_ms);
+            auto delay = *p.wake_after_ms;
+            const auto minimum = limits.at("min_wake_ms").get<millis>();
+            const auto maximum = limits.value("max_wake_ms", max_delay);
+            if (delay < minimum) { delay = minimum; reasons.push_back("minimum_interval"); }
+            if (delay > maximum) { delay = maximum; reasons.push_back("maximum_interval"); }
+            granted = add(now, delay);
+            if (b.at("eligible_at").get<millis>() > *granted) {
+                granted = b.at("eligible_at").get<millis>(); reasons.push_back("attempt_budget");
+            }
+        } else reasons.push_back("waiting_external");
+        return {{"policy", "cogg:wake/v2"}, {"decided_at", now},
+                {"requested_after_ms", optional_time(p.wake_after_ms)},
+                {"requested_at", optional_time(requested)}, {"granted_at", optional_time(granted)},
+                {"granted_after_ms", granted ? json(*granted - now) : json(nullptr)},
+                {"reasons", reasons}, {"budget", b}};
+    }
+    json schedule(const std::string& subject, millis observed) {
+        const auto s = snapshot(subject);
+        Statement time(db, "SELECT accounting_wall FROM subjects WHERE id=?");
+        time.bind(1, subject); time.row();
+        const auto accounting = std::max(observed, time.number(0));
+        const auto b = budget(subject, config(subject), accounting);
+        json occasion = nullptr;
+        // A queued wake is still a physical deadline after a wall-clock rollback.
+        Statement q(db, "SELECT id,kind,body FROM occasions WHERE subject=? AND consumed IS NULL "
+                        "AND (kind!='scheduled' OR (parent=? AND ? >= ?)) ORDER BY seq LIMIT 1");
+        q.bind(1, subject).bind(2, s.head).bind(3, observed)
+         .bind(4, s.wake_at.value_or(std::numeric_limits<millis>::max()));
+        if (q.row()) {
+            const auto e = event(q.text(0));
+            occasion = {{"id", q.text(0)}, {"kind", q.text(1)}, {"payload", e.at("payload")}};
+        } else if (s.wake_at && observed >= *s.wake_at) {
+            occasion = {{"id", nullptr}, {"kind", "scheduled"}, {"payload", {{"due_at", *s.wake_at}}}};
+        }
+        std::string status;
+        std::optional<millis> eligible;
+        if (occasion.is_null()) {
+            status = s.wake_at ? "sleeping" : "waiting_external";
+            if (s.wake_at) eligible = std::max(*s.wake_at, b.at("eligible_at").get<millis>());
+        } else {
+            eligible = b.at("eligible_at").get<millis>();
+            status = b.at("quota_at").get<millis>() > accounting ? "budget_exhausted" :
+                     b.at("floor_at").get<millis>() > accounting ? "minimum_interval" : "ready";
+        }
+        return {{"status", status}, {"eligible_at", optional_time(eligible)}, {"occasion", occasion},
+                {"wall_observed_at", observed}, {"accounting_at", accounting},
+                {"wall_rollback_ms", accounting - observed}, {"budget", b},
+                {"head", s.head}, {"tick", s.tick}, {"wake_at", optional_time(s.wake_at)}};
+    }
     json event(const std::string& id) {
         Statement s(db, "SELECT body FROM occasions WHERE id=?");
         s.bind(1, id); require(s.row(), "occasion missing");
@@ -219,7 +306,7 @@ Store::Store(const std::string& path) : impl_(std::make_unique<Impl>()) {
     Transaction tx(db);
     {
         Statement q(db, "PRAGMA user_version"); q.row();
-        require(q.number(0) == 0 || q.number(0) == 1, "unsupported database version");
+        require(q.number(0) == 0 || q.number(0) == 1 || q.number(0) == 2, "unsupported database version");
     }
     sql(db, R"SQL(
 CREATE TABLE IF NOT EXISTS subjects(
@@ -241,22 +328,23 @@ CREATE TABLE IF NOT EXISTS commits(
  id TEXT PRIMARY KEY, subject TEXT NOT NULL REFERENCES subjects(id),
  tick INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(subject,tick));
 PRAGMA application_id=1129269063;
-PRAGMA user_version=1;
+PRAGMA user_version=2;
 )SQL");
     tx.commit();
 }
 Store::~Store() = default;
 
-void Store::create(const std::string& subject, Limits limits, millis now) {
+void Store::create(const std::string& subject, Limits limits, millis now, const json& initial_memory) {
+    require(initial_memory.is_object() && initial_memory.dump().size() <= max_state, "invalid initial memory");
     check_text(subject, 128, "subject"); check_time(now);
     auto l = limits_json(limits);
     Transaction tx(impl_->db);
-    json genesis = {{"schema", 1}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
+    json genesis = {{"schema", 2}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
                     {"created_at", now}, {"nonce", random_id()}, {"limits", l},
-                    {"memory", json::object()}, {"wake_at", nullptr}};
+                    {"memory", initial_memory}, {"wake_at", nullptr}};
     const auto id = hash(genesis);
-    Statement s(impl_->db, "INSERT INTO subjects VALUES(?,0,?,'{}','null',?,?)");
-    s.bind(1, subject).bind(2, id).bind(3, l.dump()).bind(4, now).done();
+    Statement s(impl_->db, "INSERT INTO subjects VALUES(?,0,?,?,'null',?,?)");
+    s.bind(1, subject).bind(2, id).bind(3, initial_memory.dump()).bind(4, l.dump()).bind(5, now).done();
     Statement c(impl_->db, "INSERT INTO commits VALUES(?,?,0,?)");
     c.bind(1, id).bind(2, subject).bind(3, genesis.dump()).done();
     impl_->enqueue(impl_->snapshot(subject), "system:created", "created", json::object(), now);
@@ -276,55 +364,44 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
     auto* db = impl_->db;
     Transaction tx(db);
     auto s = impl_->snapshot(subject);
-    auto limits = impl_->config(subject);
-    Statement time(db, "SELECT accounting_wall FROM subjects WHERE id=?");
-    time.bind(1, subject); time.row();
-    // Clock rollback never refunds a spent quota.
-    now = std::max(now, time.number(0));
-    auto pending = [&]() -> std::optional<Occasion> {
-        Statement q(db, "SELECT id,kind,body FROM occasions WHERE subject=? AND consumed IS NULL "
-                        "AND (kind!='scheduled' OR parent=?) ORDER BY seq LIMIT 1");
-        q.bind(1, subject).bind(2, s.head);
-        if (!q.row()) return std::nullopt;
-        const auto e = impl_->event(q.text(0));
-        return Occasion{q.text(0), q.text(1), e.at("payload")};
-    };
-    auto o = pending();
-    if (!o && s.wake_at && now >= *s.wake_at) {
-        impl_->enqueue(s, "wake:" + s.head, "scheduled", {{"due_at", *s.wake_at}}, now);
-        o = pending();
+    const auto decision = impl_->schedule(subject, now);
+    if (decision.at("status") != "ready") { tx.commit(); return std::nullopt; }
+    const auto observed = now;
+    now = decision.at("accounting_at").get<millis>();
+    auto selected = decision.at("occasion");
+    if (selected.at("id").is_null())
+        selected["id"] = impl_->enqueue(s, "wake:" + s.head, "scheduled", selected.at("payload"), observed);
+    Occasion o{selected.at("id").get<std::string>(), selected.at("kind").get<std::string>(), selected.at("payload")};
+    auto temporal = json{{"clock", impl_->clock(subject)}, {"coordinate", s.tick},
+                         {"admission", decision}, {"previous_wake", nullptr}};
+    if (s.tick > 0) {
+        const auto previous = record(s.head);
+        temporal["previous_wake"] = previous.contains("wake_plan") ? previous.at("wake_plan") :
+            json{{"policy", "cogg:wake/v1"}, {"granted_at", previous.at("wake_at")}};
     }
-    if (!o) { tx.commit(); return std::nullopt; }
-    const auto period = limits.at("period_ms").get<millis>();
-    const auto lower = now >= period ? now - period : -1;
-    Statement budget(db, "SELECT count(*) FROM attempts WHERE subject=? AND admitted_at>?");
-    budget.bind(1, subject).bind(2, lower); budget.row();
-    const auto n = budget.number(0);
-    Statement latest(db, "SELECT max(admitted_at),count(*) FROM attempts WHERE subject=?");
-    latest.bind(1, subject); latest.row();
-    if (n >= limits.at("max_attempts").get<std::int64_t>() ||
-        (latest.number(1) > 0 && now - latest.number(0) < limits.at("min_wake_ms").get<millis>())) {
-        tx.commit(); return std::nullopt;
-    }
+    temporal["wake_lateness_ms"] = o.kind == "scheduled" ?
+        json(observed - o.payload.at("due_at").get<millis>()) : json(nullptr);
     Statement prior(db, "SELECT count(*) FROM attempts WHERE subject=? AND status='reserved'");
     prior.bind(1, subject); prior.row();
     bool unsettled = prior.number(0) > 0;
     Statement account(db, "UPDATE subjects SET accounting_wall=? WHERE id=?");
     account.bind(1, now).bind(2, subject).done();
-    json body = {{"schema", 1}, {"nonce", random_id()}, {"subject", subject},
-                 {"parent", s.head}, {"tick", s.tick}, {"occasion", o->id},
-                 {"backend", backend}, {"admitted_at", now}, {"prior_unsettled", unsettled}};
+    json body = {{"schema", 2}, {"nonce", random_id()}, {"subject", subject},
+                 {"parent", s.head}, {"tick", s.tick}, {"occasion", o.id},
+                 {"backend", backend}, {"admitted_at", now}, {"prior_unsettled", unsettled},
+                 {"wall_observed_at", observed}, {"temporal", temporal}};
     const auto id = hash(body);
     Statement insert(db, "INSERT INTO attempts(id,subject,parent,occasion,admitted_at,body,status) "
                          "VALUES(?,?,?,?,?,?,'reserved')");
-    insert.bind(1, id).bind(2, subject).bind(3, s.head).bind(4, o->id).bind(5, now)
+    insert.bind(1, id).bind(2, subject).bind(3, s.head).bind(4, o.id).bind(5, now)
           .bind(6, body.dump()).done();
     tx.commit();
-    return Attempt{id, Present{s, *o, unsettled}};
+    return Attempt{id, Present{s, o, unsettled, temporal}};
 }
 
 Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, millis now,
-                       const std::function<void(CommitPoint)>& hook) {
+                       const std::function<void(CommitPoint)>& hook, std::optional<millis> inference_elapsed_ms) {
+    if (inference_elapsed_ms) check_time(*inference_elapsed_ms);
     check_time(now); const auto p = proposal_json(proposal);
     auto* db = impl_->db;
     Transaction tx(db);
@@ -347,17 +424,20 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     // Commit wall cannot move behind admission, including a recovered attempt.
     Statement wall(db, "SELECT accounting_wall FROM subjects WHERE id=?");
     wall.bind(1, subject); wall.row();
+    const auto observed = now;
     now = std::max({now, a.at("admitted_at").get<millis>(), wall.number(0)});
+    if (inference_elapsed_ms) now = std::max(now, add(a.at("admitted_at").get<millis>(), *inference_elapsed_ms));
     auto memory = s.memory;
     for (const auto& w : proposal.memory) memory[w.key] = w.value;
     require(memory.dump().size() <= max_state, "state exceeds phase-0 limit");
     auto limits = impl_->config(subject);
-    std::optional<millis> wake;
-    if (proposal.wake_after_ms)
-        wake = add(now, std::max(*proposal.wake_after_ms, limits.at("min_wake_ms").get<millis>()));
-    json body = {{"schema", 1}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
+    const auto plan = impl_->wake_plan(subject, limits, proposal, now);
+    const auto wake = read_time(plan.at("granted_at"));
+    json body = {{"schema", 2}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
                  {"occasion", oid}, {"attempt", attempt}, {"proposal", p},
-                 {"memory", memory}, {"wake_at", optional_time(wake)}, {"committed_at", now}};
+                 {"memory", memory}, {"wake_at", optional_time(wake)}, {"committed_at", now},
+                 {"wall_observed_at", observed}, {"wake_plan", plan},
+                 {"inference_elapsed_ms", optional_time(inference_elapsed_ms)}};
     auto id = hash(body);
     Statement insert(db, "INSERT INTO commits VALUES(?,?,?,?)");
     insert.bind(1, id).bind(2, subject).bind(3, tick).bind(4, body.dump()).done();
@@ -381,13 +461,31 @@ void Store::fail(const std::string& attempt, const std::string& reason) {
     Statement q(impl_->db, "UPDATE attempts SET status='failed',error=? WHERE id=? AND status='reserved'");
     q.bind(1, reason.substr(0, 1024)).bind(2, attempt).done();
 }
+json Store::schedule(const std::string& subject, millis now) {
+    check_time(now);
+    Transaction tx(impl_->db, false);
+    auto result = impl_->schedule(subject, now);
+    tx.commit(); return result;
+}
+json Store::clock(const std::string& subject) { return impl_->clock(subject); }
+json Store::duration(const std::string& subject, const std::string& from, const std::string& to) {
+    // Committed anchors are immutable through the host API. Concurrent appends
+    // preserve a verified prefix; arbitrary out-of-band DB edits are unsupported.
+    verify(subject);
+    const auto a = record(from), b = record(to);
+    require(a.at("subject") == subject && b.at("subject") == subject, "foreign clock anchor");
+    const auto i = a.at("tick").get<std::int64_t>(), j = b.at("tick").get<std::int64_t>();
+    require(j >= i, "reversed clock window");
+    return {{"clock", clock(subject)}, {"from", from}, {"to", to},
+            {"window", "[from,to)"}, {"duration", j - i}, {"coverage", "complete_verified_chain"}};
+}
 json Store::timeline(const std::string& subject) {
     auto* db = impl_->db;
     Transaction tx(db, false);
     const auto s = impl_->snapshot(subject);
     json result = {{"subject", subject}, {"tick", s.tick}, {"head", s.head},
                    {"memory", s.memory}, {"wake_at", optional_time(s.wake_at)},
-                   {"lifecycle", s.lifecycle}, {"commits", json::array()},
+                   {"lifecycle", s.lifecycle}, {"clock", impl_->clock(subject)}, {"commits", json::array()},
                    {"attempts", json::array()}, {"occasions", json::array()}};
     Statement c(db, "SELECT id,body FROM commits WHERE subject=? ORDER BY tick"); c.bind(1, subject);
     while (c.row()) result["commits"].push_back({{"id", c.text(0)}, {"body", json::parse(c.text(1))}});
@@ -411,12 +509,17 @@ void Store::verify(const std::string& subject) {
     std::string head;
     std::int64_t tick = 0;
     std::set<std::string> chain;
+    millis committed_wall = 0;
     Statement q(db, "SELECT id,tick,body FROM commits WHERE subject=? ORDER BY tick"); q.bind(1, subject);
     while (q.row()) {
         auto b = json::parse(q.text(2));
         require(q.number(1) == tick && b.at("tick") == tick && b.at("subject") == subject &&
-                b.at("schema") == 1 && hash(b) == q.text(0), "commit integrity failure");
+                (b.at("schema") == 1 || b.at("schema") == 2) && hash(b) == q.text(0), "commit integrity failure");
         if (tick == 0) {
+            committed_wall = b.at("created_at").get<millis>();
+            check_time(committed_wall);
+            memory = b.at("memory");
+            require(memory.is_object() && memory.dump().size() <= max_state, "invalid genesis memory");
             require(b.at("parent").is_null() && b.at("limits") == impl_->config(subject) &&
                     b.at("memory") == memory && b.at("wake_at").is_null(), "genesis mismatch");
         } else {
@@ -438,9 +541,23 @@ void Store::verify(const std::string& subject) {
             for (const auto& w : p.memory) memory[w.key] = w.value;
             require(b.at("memory") == memory, "memory replay mismatch");
             const auto at = b.at("committed_at").get<millis>();
-            require(at >= ab.at("admitted_at").get<millis>(), "commit precedes admission");
-            wake = p.wake_after_ms ? std::optional<millis>(add(at, std::max(*p.wake_after_ms,
-                impl_->config(subject).at("min_wake_ms").get<millis>()))) : std::nullopt;
+            require(at >= ab.at("admitted_at").get<millis>() && at >= committed_wall, "commit precedes admission or predecessor");
+            committed_wall = at;
+            if (b.contains("inference_elapsed_ms") && !b.at("inference_elapsed_ms").is_null()) {
+                const auto elapsed = b.at("inference_elapsed_ms").get<millis>();
+                check_time(elapsed);
+                require(at >= add(ab.at("admitted_at").get<millis>(), elapsed), "inference elapsed mismatch");
+            }
+            if (b.at("schema") == 1) {
+                wake = p.wake_after_ms ? std::optional<millis>(add(at, std::max(*p.wake_after_ms,
+                    impl_->config(subject).at("min_wake_ms").get<millis>()))) : std::nullopt;
+            } else {
+                const auto& saved = b.at("wake_plan");
+                const auto replay = impl_->wake_plan(subject, impl_->config(subject), p, at,
+                    saved.at("budget").at("through_seq").get<std::int64_t>());
+                require(saved == replay, "wake decision replay mismatch");
+                wake = read_time(replay.at("granted_at"));
+            }
             require(b.at("wake_at") == optional_time(wake), "wake replay mismatch");
         }
         head = q.text(0); chain.insert(head); ++tick;
@@ -456,7 +573,7 @@ void Store::verify(const std::string& subject) {
                 chain.count(events.text(4)) == 1, "occasion index mismatch");
         if (!events.text(5).empty()) require(chain.count(events.text(5)) == 1, "missing consuming commit");
     }
-    Statement attempts(db, "SELECT id,body,parent,occasion,admitted_at,status FROM attempts WHERE subject=? ORDER BY seq");
+    Statement attempts(db, "SELECT id,body,parent,occasion,admitted_at,status,seq FROM attempts WHERE subject=? ORDER BY seq");
     attempts.bind(1, subject);
     millis previous = -1;
     while (attempts.row()) {
@@ -465,12 +582,29 @@ void Store::verify(const std::string& subject) {
                 b.at("parent") == attempts.text(2) && b.at("occasion") == attempts.text(3) &&
                 b.at("admitted_at") == attempts.number(4) && chain.count(attempts.text(2)) == 1 &&
                 attempts.number(4) >= previous, "admission integrity failure");
-        require(impl_->event(attempts.text(3)).at("subject") == subject, "foreign admitted occasion");
+        const auto event = impl_->event(attempts.text(3));
+        require(event.at("subject") == subject, "foreign admitted occasion");
+        if (b.at("schema") == 2) {
+            const auto at = attempts.number(4);
+            const auto expected = impl_->budget(subject, impl_->config(subject), at, attempts.number(6) - 1);
+            const auto& temporal = b.at("temporal");
+            require(expected == temporal.at("admission").at("budget") && expected.at("eligible_at").get<millis>() <= at,
+                    "admission budget replay mismatch");
+            require(temporal.at("clock") == impl_->clock(subject) && temporal.at("coordinate") == b.at("tick"),
+                    "admission clock mismatch");
+            require(record(attempts.text(2)).at("tick") == b.at("tick"), "admission coordinate mismatch");
+            if (event.at("kind") == "scheduled")
+                require(b.at("wall_observed_at").get<millis>() >= event.at("payload").at("due_at").get<millis>(),
+                        "scheduled wake admitted before physical deadline");
+        }
         previous = attempts.number(4);
         const auto status = attempts.text(5);
         require(status == "reserved" || status == "committed" || status == "failed" || status == "superseded",
                 "unknown attempt status");
     }
+    Statement accounting(db, "SELECT accounting_wall FROM subjects WHERE id=?");
+    accounting.bind(1, subject); accounting.row();
+    require(accounting.number(0) == std::max(committed_wall, previous), "accounting projection mismatch");
     tx.commit();
 }
 json Store::record(const std::string& id) {
@@ -495,7 +629,7 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now) {
         auto p = backend_.propose(a->present);
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started).count();
-        result = store_.commit(a->id, p, add(now, elapsed));
+        result = store_.commit(a->id, p, wall_clock_ ? wall_clock_() : add(now, elapsed), {}, elapsed);
     } catch (const Conflict&) {
         store_.fail(a->id, "stale transition");
         return std::nullopt;

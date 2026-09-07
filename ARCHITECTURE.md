@@ -1,7 +1,8 @@
 > Implementation note, 2026-09-07: this document is a research roadmap.
-> Phases 0–2 are implemented; see [kernel](docs/PHASE-0.md),
+> Phases 0–2 and Phase 3 mechanisms are implemented; the 48-hour observation
+> remains a separate validation gate. See [kernel](docs/PHASE-0.md),
 > [local inference](docs/PHASE-1.md), [durable checkpoints](docs/PHASE-2.md) and
-> [prior-art review](docs/RESEARCH-2026-09-07.md). Later phases, signatures,
+> [temporal contract](docs/PHASE-3.md). Later phases, signatures,
 > Crystal and multi-substrate cognition remain planned.
 > The original design below is preserved; its examples are not current APIs.
 

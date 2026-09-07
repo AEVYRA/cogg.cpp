@@ -2,3 +2,7 @@
 *.db
 *.db-wal
 *.db-shm
+
+/experiments/
+__pycache__/
+*.pyc

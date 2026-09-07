@@ -3,7 +3,7 @@
 A local C++ runtime for persistent subject state, committed transitions, and
 bounded autonomous waking. Part of the Physalia Gyre research program.
 
-**Status: experimental Phase 2, version 0.3.0.** An optional pinned libllama backend
+**Status: experimental Phase 3, version 0.4.0; 48-hour observation pending.** An optional pinned libllama backend
 runs local GGUF models through the durable transition loop, with compatible
 disk KV checkpoints and cold reconstruction. The default build retains the
 deterministic demo without an inference dependency.
@@ -24,6 +24,8 @@ while owning the relationship between subject state, computation and continuatio
 - Local grammar-constrained generation with token/context limits and CPU cancellation.
 - A resident model and reusable KV prefix, rebuilt from committed memory after eviction or restart.
 - Optional atomic disk checkpoints, tied to the accepted commit and exact backend configuration.
+- Explicit subject-clock windows and replayable requested/granted wake decisions.
+- A bounded observation harness separating model timing choices from runtime limits.
 
 The persistence boundary is a completed SQLite transaction. Uncommitted inference
 can be retried after a crash and can produce a different proposal. Hashes detect
@@ -76,6 +78,7 @@ visible through `inspect`; no external tools execute.
 
 ## Design and research
 
+- [Temporal contract and 48-hour observation protocol](docs/PHASE-3.md)
 - [Durable checkpoint usage and Phase 2 contract](docs/PHASE-2.md)
 - [Local model build, usage and Phase 1 contract](docs/PHASE-1.md)
 - [Durable kernel contract](docs/PHASE-0.md)

@@ -93,6 +93,15 @@ void inference(const std::string& path) {
     check(after.has_value(), "failed attempt consumed occasion");
     store.fail(after->id, "test done"); store.verify("s");
     cancelled = false;
+    { // The observation protocol forbids speech without converting it into null.
+        auto internal_options = o; internal_options.internal_only = true;
+        LlamaBackend internal(internal_options);
+        check(internal.name() != b.name(), "internal-only policy missing from identity");
+        auto internal_present = a->present;
+        internal_present.state.memory = {{"task", "Reflect briefly, then wait. Save one short note."}};
+        const auto choice = internal.propose(internal_present);
+        check(choice.kind != "speech" && choice.text.empty(), "internal-only grammar emitted speech");
+    }
     o.max_output_tokens = 1;
     LlamaBackend tiny(o);
     rejects([&] { tiny.propose(a->present); }, "output token limit");

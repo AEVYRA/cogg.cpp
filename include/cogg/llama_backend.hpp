@@ -10,6 +10,7 @@ struct LlamaOptions {
     std::uint32_t max_output_tokens = 512;
     std::uint32_t batch_tokens = 128;
     int threads = 2;
+    bool internal_only = false; // grammar permits reflection/null, with memory writes
     millis timeout_ms = 30000;
     // Optional built-in llama chat template name; otherwise use model metadata.
     std::string chat_template;

@@ -14,3 +14,4 @@ jobs:
       - run: cmake --build build -j2
       - run: ctest --test-dir build --output-on-failure
       - run: python3 tests/model_crash_test.py build/cogg-cli /tmp/model.gguf
+      - run: python3 tests/time_experiment_test.py build/cogg-cli /tmp/model.gguf

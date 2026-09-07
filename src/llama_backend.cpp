@@ -19,6 +19,8 @@ kind is speech, reflection, or null. Only speech may contain nonempty text.
 memory is an array of {"key":"name","value":JSON} assignments to remember.
 wake_after_ms is a nonnegative integer delay, or null to wait for external input.
 Request a wake only when there is useful unfinished work. The runtime may delay it.
+Temporal data describes committed subject time, observed wall time and admission limits.
+Sleep and failed attempts do not advance subject time. A null wake waits for external input.
 Use concise output. Do not include markdown, hidden reasoning, or extra fields.
 You cannot change the subject tick, commit head, or runtime limits.)";
 constexpr const char* grammar = R"gbnf(
@@ -96,7 +98,7 @@ struct LlamaBackend::Impl {
             {"model_sha256", hash}, {"context_tokens", options.context_tokens},
             {"max_output_tokens", options.max_output_tokens}, {"batch_tokens", options.batch_tokens},
             {"threads", options.threads}, {"timeout_ms", options.timeout_ms},
-            {"template", options.chat_template}, {"sampling", "grammar-greedy/v1"}}).dump();
+            {"template", options.chat_template}, {"sampling", "grammar-greedy/v1"}, {"internal_only", options.internal_only}}).dump();
         unsigned char digest[EVP_MAX_MD_SIZE]; unsigned int size = 0;
         if (EVP_Digest(manifest.data(), manifest.size(), digest, &size, EVP_sha256(), nullptr) != 1)
             throw Error("backend manifest hash failed");
@@ -201,10 +203,12 @@ struct LlamaBackend::Impl {
             {"lifecycle", p.state.lifecycle},
             {"wake_at", p.state.wake_at ? json(*p.state.wake_at) : json(nullptr)},
             {"occasion", {{"id", p.occasion.id}, {"kind", p.occasion.kind}, {"payload", p.occasion.payload}}},
-            {"prior_unsettled_attempt", p.prior_unsettled_attempt}};
+            {"prior_unsettled_attempt", p.prior_unsettled_attempt}, {"temporal", p.temporal}};
         const auto body = data.dump();
         if (body.size() > 2 * 1048576) throw Error("canonical present exceeds prompt byte limit");
-        const llama_chat_message messages[] = {{"system", instruction}, {"user", body.c_str()}};
+        const auto system = std::string(instruction) + (options.internal_only ?
+            "\nThis run permits reflection or null only. Do not speak. Continue useful unfinished work from memory, or wait." : "");
+        const llama_chat_message messages[] = {{"system", system.c_str()}, {"user", body.c_str()}};
         const char* tmpl = options.chat_template.empty() ?
             llama_model_chat_template(model.get(), nullptr) : options.chat_template.c_str();
         if (!tmpl) throw Error("model has no chat template; select a supported template explicitly");
@@ -264,7 +268,14 @@ struct LlamaBackend::Impl {
             cached = tokens; cached_subject = p.state.subject;
             Sampler sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), llama_sampler_free);
             if (!sampler) throw Error("sampler allocation failed");
-            auto* rules = llama_sampler_init_grammar(vocab, grammar, "root");
+            std::string allowed = grammar;
+            if (options.internal_only) {
+                const std::string speech = R"("\"speech\"," ws "\"text\":" ws string | )";
+                const auto at = allowed.find(speech);
+                if (at == std::string::npos) throw Error("internal-only grammar mismatch");
+                allowed.erase(at, speech.size());
+            }
+            auto* rules = llama_sampler_init_grammar(vocab, allowed.c_str(), "root");
             if (!rules) throw Error("transition grammar initialization failed");
             llama_sampler_chain_add(sampler.get(), rules);
             llama_sampler_chain_add(sampler.get(), llama_sampler_init_greedy());
@@ -287,6 +298,7 @@ struct LlamaBackend::Impl {
                 const auto value = json::parse(output, nullptr, false);
                 if (!value.is_discarded()) {
                     auto result = parse_proposal(value);
+                    if (options.internal_only && result.kind == "speech") throw Error("speech disabled by host");
                     check_deadline();
                     pending_head = p.state.head; pending_tick = p.state.tick;
                     return result;

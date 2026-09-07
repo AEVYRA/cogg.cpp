@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <utility>
 #include <nlohmann/json.hpp>
 
 namespace cogg {
@@ -20,6 +21,7 @@ struct Limits {
     millis min_wake_ms = 30000;
     std::int64_t max_attempts = 20;
     millis period_ms = 3600000;
+    millis max_wake_ms = 365LL * 24 * 60 * 60 * 1000;
 };
 struct Snapshot {
     std::string subject;
@@ -40,6 +42,8 @@ struct Present {
     // An earlier reservation has no settlement. This can mean a crash OR a
     // concurrent worker; it is not evidence that the earlier inference failed.
     bool prior_unsettled_attempt = false;
+    // Runtime-issued clock, wake provenance and admission accounting.
+    json temporal = json::object();
 };
 struct MemoryWrite { std::string key; json value; };
 struct Proposal {
@@ -66,15 +70,22 @@ public:
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
-    void create(const std::string& subject, Limits limits, millis now);
+    void create(const std::string& subject, Limits limits, millis now,
+                const json& initial_memory = json::object());
     Snapshot snapshot(const std::string& subject);
     std::string submit(const std::string& subject, const std::string& key,
                        const json& payload, millis now);
     std::optional<Attempt> admit(const std::string& subject,
                                 const std::string& backend, millis now);
     Snapshot commit(const std::string& attempt, const Proposal& proposal, millis now,
-                    const std::function<void(CommitPoint)>& fault_hook = {});
+                    const std::function<void(CommitPoint)>& fault_hook = {},
+                    std::optional<millis> inference_elapsed_ms = std::nullopt);
     void fail(const std::string& attempt, const std::string& reason);
+    // Read-only eligibility; polling never creates an occasion or a subject tick.
+    json schedule(const std::string& subject, millis now);
+    json clock(const std::string& subject);
+    // Verified same-chain duration [from,to), in committed-transition units.
+    json duration(const std::string& subject, const std::string& from, const std::string& to);
     json timeline(const std::string& subject);
     json record(const std::string& id);
     void verify(const std::string& subject);
@@ -94,12 +105,16 @@ public:
 };
 class Runtime {
 public:
-    Runtime(Store& store, Backend& backend) : store_(store), backend_(backend) {}
+    // Pass a wall sampler in a live host to observe clock adjustments during inference.
+    // Without it, step(now) extrapolates its supplied timestamp using steady elapsed time.
+    Runtime(Store& store, Backend& backend, std::function<millis()> wall_clock = {})
+        : store_(store), backend_(backend), wall_clock_(std::move(wall_clock)) {}
     std::optional<Snapshot> step(const std::string& subject, millis now);
     const std::string& maintenance_error() const { return maintenance_error_; }
 private:
     Store& store_;
     Backend& backend_;
+    std::function<millis()> wall_clock_;
     std::set<std::string> verified_;
     std::string maintenance_error_;
 };
