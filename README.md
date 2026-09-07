@@ -3,8 +3,9 @@
 A local C++ runtime for persistent subject state, committed transitions, and
 bounded autonomous waking. Part of the Physalia Gyre research program.
 
-**Status: experimental Phase 0, version 0.1.0.** The executable uses a deterministic
-demo backend. Local model inference is not implemented.
+**Status: experimental Phase 1, version 0.2.0.** An optional pinned libllama backend
+runs local GGUF models through the durable transition loop. The default build
+retains the deterministic demo without an inference dependency.
 
 **Scope clarification, 2026-09-07:** cogg.cpp remains a proposed open foundation
 for other builders as well as a possible runtime for Physalia Gyre. Sofia's
@@ -22,6 +23,8 @@ platform. Phase 0 remains implemented and available.
 - A backend proposal boundary: only the runtime advances the subject tick.
 - Restart verification and replay of committed memory and wake state.
 - A CLI loop which can continue without user messages while a wake is scheduled.
+- Local grammar-constrained generation with token/context limits and CPU cancellation.
+- A resident model and reusable KV prefix, rebuilt from committed memory after eviction or restart.
 
 The persistence boundary is a completed SQLite transaction. Uncommitted inference
 can be retried after a crash and can produce a different proposal. Hashes detect
@@ -74,7 +77,8 @@ visible through `inspect`; no external tools execute.
 
 ## Design and research
 
-- [Current implementation contract](docs/PHASE-0.md)
+- [Local model build, usage and Phase 1 contract](docs/PHASE-1.md)
+- [Durable kernel contract](docs/PHASE-0.md)
 - [Prior art and language decision, 2026-09-07](docs/RESEARCH-2026-09-07.md)
 - [Original long-term architecture](ARCHITECTURE.md)
 
@@ -84,10 +88,10 @@ claim to be the first agent OS. Its working focus is an embeddable transition
 kernel with an explicit, testable relationship between persistent state, model
 contexts and the authority to commit a successor.
 
-The next architectural comparison must address both goals: Physalia's needs and
-an open reusable foundation. Compare an own core using existing libraries,
-extension of an existing runtime, and direct reuse against the same requirements.
-Agent-libOS is one candidate, not a selected platform. KV checkpoint envelopes, cryptographic subject
+After reviewing the whole Physalia architecture, Sasha authorized continued
+cogg.cpp development. This increment uses libllama for inference and preserves
+the component's ownership of durable transitions. Alternative platforms remain
+research references. KV checkpoint envelopes, cryptographic subject
 signatures, tool-effect settlement, compaction and multi-substrate integration
 remain future work. The original roadmap includes experiments needed to evaluate
 whether these mechanisms improve cognitive continuity.

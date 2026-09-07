@@ -473,6 +473,14 @@ void Store::verify(const std::string& subject) {
     }
     tx.commit();
 }
+json Store::record(const std::string& id) {
+    Statement q(impl_->db, "SELECT body FROM commits WHERE id=?");
+    q.bind(1, id);
+    require(q.row(), "record not found");
+    auto body = json::parse(q.text(0));
+    require(hash(body) == id, "record hash mismatch");
+    return body;
+}
 std::optional<Snapshot> Runtime::step(const std::string& subject, millis now) {
     if (!verified_.count(subject)) {
         store_.verify(subject);

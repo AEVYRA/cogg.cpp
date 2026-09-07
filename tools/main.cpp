@@ -1,4 +1,7 @@
 #include "cogg/kernel.hpp"
+#ifdef COGG_LLAMA
+#include "cogg/llama_backend.hpp"
+#endif
 #include <csignal>
 #include <iostream>
 #include <thread>
@@ -34,6 +37,9 @@ void usage() {
     std::cout << "cogg-cli init DB SUBJECT [min-interval-ms max-attempts period-ms]\n"
                  "cogg-cli send DB SUBJECT IDEMPOTENCY-KEY TEXT\n"
                  "cogg-cli run DB SUBJECT [steps=0 idle-base-ms=0]\n"
+                 "cogg-cli run-model DB SUBJECT MODEL.gguf [--steps N] [--ctx N]\n"
+                 "    [--tokens N] [--threads N] [--timeout-ms N] [--template NAME]\n"
+                 "    [--release-context] [--once]\n"
                  "cogg-cli inspect DB SUBJECT\n"
                  "cogg-cli verify DB SUBJECT\n"
                  "run uses the deterministic demo backend; 0 steps runs until interrupted.\n"
@@ -58,6 +64,53 @@ int main(int argc, char** argv) {
         } else if (command == "verify" && argc == 4) {
             store.verify(subject);
             std::cout << "verified " << subject << " tick=" << store.snapshot(subject).tick << '\n';
+        } else if (command == "run-model" && argc >= 5) {
+#ifdef COGG_LLAMA
+            cogg::LlamaOptions options;
+            options.model_path = argv[4];
+            std::int64_t steps = 0;
+            bool release = false, once = false;
+            for (int i = 5; i < argc; ++i) {
+                const std::string flag = argv[i];
+                if (flag == "--release-context") { release = true; continue; }
+                if (flag == "--once") { once = true; continue; }
+                if (++i >= argc) throw cogg::Error("missing value for " + flag);
+                if (flag == "--template") { options.chat_template = argv[i]; continue; }
+                const auto n = number(argv[i]);
+                if (flag == "--steps") steps = n;
+                else if (flag == "--timeout-ms") options.timeout_ms = n;
+                else {
+                    if (n > 131072) throw cogg::Error("inference option too large");
+                    if (flag == "--ctx") options.context_tokens = static_cast<std::uint32_t>(n);
+                    else if (flag == "--tokens") options.max_output_tokens = static_cast<std::uint32_t>(n);
+                    else if (flag == "--threads") options.threads = static_cast<int>(n);
+                    else throw cogg::Error("unknown option: " + flag);
+                }
+            }
+            store.verify(subject);
+            std::signal(SIGINT, stop); std::signal(SIGTERM, stop);
+            options.cancelled = [] { return stopping != 0; };
+            cogg::LlamaBackend backend(options);
+            cogg::Runtime runtime(store, backend);
+            std::cerr << "backend=" << backend.name() << '\n';
+            std::int64_t done = 0;
+            while (!stopping && (steps == 0 || done < steps)) {
+                if (auto s = runtime.step(subject, cogg::wall_now())) {
+                    ++done;
+                    const auto stats = backend.stats();
+                    std::cout << cogg::json({{"subject", subject}, {"tick", s->tick}, {"head", s->head},
+                        {"lifecycle", s->lifecycle}, {"memory", s->memory},
+                        {"proposal", store.record(s->head).at("proposal")},
+                        {"wake_at", s->wake_at ? cogg::json(*s->wake_at) : cogg::json(nullptr)},
+                        {"inference", {{"prompt_tokens", stats.prompt_tokens},
+                            {"reused_tokens", stats.reused_tokens}, {"generated_tokens", stats.generated_tokens}}}}).dump() << std::endl;
+                    if (release) backend.release_context();
+                } else if (!once) std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                if (once) break;
+            }
+#else
+            throw cogg::Error("run-model requires a build with -DCOGG_LLAMA=ON");
+#endif
         } else if (command == "run" && argc >= 4 && argc <= 6) {
             const auto steps = argc >= 5 ? number(argv[4]) : 0;
             const auto interval = argc >= 6 ? number(argv[5]) : 0;

@@ -1,0 +1,16 @@
+name: Local model adapter
+on: [push, pull_request]
+jobs:
+  llama:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libsqlite3-dev libssl-dev nlohmann-json3-dev curl
+      - name: Fetch pinned small inference fixture
+        run: |
+          curl -fL --retry 2 https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5d/qwen2.5-0.5b-instruct-q4_k_m.gguf -o /tmp/model.gguf
+          echo '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db  /tmp/model.gguf' | sha256sum -c -
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOGG_LLAMA=ON -DBUILD_SHARED_LIBS=OFF -DCOGG_TEST_MODEL=/tmp/model.gguf
+      - run: cmake --build build -j2
+      - run: ctest --test-dir build --output-on-failure
+      - run: python3 tests/model_crash_test.py build/cogg-cli /tmp/model.gguf

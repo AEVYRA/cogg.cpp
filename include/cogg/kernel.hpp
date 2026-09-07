@@ -76,6 +76,7 @@ public:
                     const std::function<void(CommitPoint)>& fault_hook = {});
     void fail(const std::string& attempt, const std::string& reason);
     json timeline(const std::string& subject);
+    json record(const std::string& id);
     void verify(const std::string& subject);
 private:
     struct Impl;
