@@ -412,7 +412,9 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     require(hash(a) == attempt, "attempt hash mismatch");
     const auto subject = a.at("subject").get<std::string>();
     auto s = impl_->snapshot(subject);
-    if (s.head != a.at("parent") || s.tick != a.at("tick")) throw Conflict("stale subject head");
+    if (s.head != a.at("parent").get<std::string>() || s.tick != a.at("tick").get<std::int64_t>()) {
+        throw Conflict("stale subject head");
+    }
     const auto oid = a.at("occasion").get<std::string>();
     const auto e = impl_->event(oid);
     require(e.at("subject") == subject, "foreign occasion");

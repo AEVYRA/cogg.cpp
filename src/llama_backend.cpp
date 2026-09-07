@@ -146,8 +146,8 @@ struct LlamaBackend::Impl {
             if (!cp) return;
             const auto& m = cp->metadata;
             if (m.at("schema") != "cogg-checkpoint/v1" || !m.at("tick").is_number_integer() ||
-                m.at("subject") != p.state.subject ||
-                m.at("head") != p.state.head || m.at("tick") != p.state.tick)
+                m.at("subject").get<std::string>() != p.state.subject ||
+                m.at("head").get<std::string>() != p.state.head || m.at("tick").get<std::int64_t>() != p.state.tick)
                 throw Error("checkpoint subject or committed head mismatch");
             if (m.at("compatibility") != compatibility()) throw Error("checkpoint backend compatibility mismatch");
             if (!m.at("tokens").is_array() || m.at("tokens").empty() ||
