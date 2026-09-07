@@ -6,11 +6,12 @@ bounded autonomous waking. Part of the Physalia Gyre research program.
 **Status: experimental Phase 0, version 0.1.0.** The executable uses a deterministic
 demo backend. Local model inference is not implemented.
 
-**Direction revised after Sasha's review, 2026-09-07:** further standalone kernel
-development is paused. The priority is to build Physalia Gyre on an existing
-runtime and implement only its missing domain mechanisms. Phase 0 is retained
-as an experiment and source of invariant tests, not a decision to maintain a
-second general-purpose agent runtime. See the [reuse decision](docs/RESEARCH-2026-09-07.md#reuse-decision-after-sashas-review).
+**Scope clarification, 2026-09-07:** cogg.cpp remains a proposed open foundation
+for other builders as well as a possible runtime for Physalia Gyre. Sofia's
+previous announcement that standalone development should be abandoned in favor
+of another runtime was an overcorrection, not Sasha's decision. Existing solutions
+inform the architecture; they do not settle whether to build, extend or reuse a
+platform. Phase 0 remains implemented and available.
 
 ## What runs today
 
@@ -83,10 +84,10 @@ claim to be the first agent OS. Its working focus is an embeddable transition
 kernel with an explicit, testable relationship between persistent state, model
 contexts and the authority to commit a successor.
 
-Next: evaluate a minimal Physalia integration on Agent-libOS's host/module and
-transaction boundaries, with existing inference infrastructure. A dedicated
-libllama integration in cogg.cpp is deferred until a concrete unmet requirement
-justifies it. KV checkpoint envelopes, cryptographic subject
+The next architectural comparison must address both goals: Physalia's needs and
+an open reusable foundation. Compare an own core using existing libraries,
+extension of an existing runtime, and direct reuse against the same requirements.
+Agent-libOS is one candidate, not a selected platform. KV checkpoint envelopes, cryptographic subject
 signatures, tool-effect settlement, compaction and multi-substrate integration
 remain future work. The original roadmap includes experiments needed to evaluate
 whether these mechanisms improve cognitive continuity.
