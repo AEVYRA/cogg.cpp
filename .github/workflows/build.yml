@@ -1,0 +1,14 @@
+name: C++ kernel
+on: [push, pull_request]
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        sanitize: ["OFF", "ON"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libsqlite3-dev libssl-dev nlohmann-json3-dev
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCOGG_SANITIZE=${{ matrix.sanitize }}
+      - run: cmake --build build -j2
+      - run: ctest --test-dir build --output-on-failure
