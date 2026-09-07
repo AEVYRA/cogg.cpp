@@ -3,16 +3,14 @@
 A local C++ runtime for persistent subject state, committed transitions, and
 bounded autonomous waking. Part of the Physalia Gyre research program.
 
-**Status: experimental Phase 1, version 0.2.0.** An optional pinned libllama backend
-runs local GGUF models through the durable transition loop. The default build
-retains the deterministic demo without an inference dependency.
+**Status: experimental Phase 2, version 0.3.0.** An optional pinned libllama backend
+runs local GGUF models through the durable transition loop, with compatible
+disk KV checkpoints and cold reconstruction. The default build retains the
+deterministic demo without an inference dependency.
 
-**Scope clarification, 2026-09-07:** cogg.cpp remains a proposed open foundation
-for other builders as well as a possible runtime for Physalia Gyre. Sofia's
-previous announcement that standalone development should be abandoned in favor
-of another runtime was an overcorrection, not Sasha's decision. Existing solutions
-inform the architecture; they do not settle whether to build, extend or reuse a
-platform. Phase 0 remains implemented and available.
+cogg.cpp is developed as an open foundation for other builders and as a runtime
+component for Physalia Gyre. It reuses established inference and storage libraries
+while owning the relationship between subject state, computation and continuation.
 
 ## What runs today
 
@@ -25,6 +23,7 @@ platform. Phase 0 remains implemented and available.
 - A CLI loop which can continue without user messages while a wake is scheduled.
 - Local grammar-constrained generation with token/context limits and CPU cancellation.
 - A resident model and reusable KV prefix, rebuilt from committed memory after eviction or restart.
+- Optional atomic disk checkpoints, tied to the accepted commit and exact backend configuration.
 
 The persistence boundary is a completed SQLite transaction. Uncommitted inference
 can be retried after a crash and can produce a different proposal. Hashes detect
@@ -77,6 +76,7 @@ visible through `inspect`; no external tools execute.
 
 ## Design and research
 
+- [Durable checkpoint usage and Phase 2 contract](docs/PHASE-2.md)
 - [Local model build, usage and Phase 1 contract](docs/PHASE-1.md)
 - [Durable kernel contract](docs/PHASE-0.md)
 - [Prior art and language decision, 2026-09-07](docs/RESEARCH-2026-09-07.md)
@@ -88,10 +88,9 @@ claim to be the first agent OS. Its working focus is an embeddable transition
 kernel with an explicit, testable relationship between persistent state, model
 contexts and the authority to commit a successor.
 
-After reviewing the whole Physalia architecture, Sasha authorized continued
-cogg.cpp development. This increment uses libllama for inference and preserves
-the component's ownership of durable transitions. Alternative platforms remain
-research references. KV checkpoint envelopes, cryptographic subject
+The runtime uses libllama for inference and preserves the component's ownership
+of durable transitions. Alternative platforms remain research references.
+Cryptographic subject
 signatures, tool-effect settlement, compaction and multi-substrate integration
 remain future work. The original roadmap includes experiments needed to evaluate
 whether these mechanisms improve cognitive continuity.

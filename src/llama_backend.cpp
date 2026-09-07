@@ -3,6 +3,7 @@
 #include <openssl/evp.h>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <fstream>
 #include <mutex>
@@ -61,7 +62,8 @@ void check_options(const LlamaOptions& o) {
     if (o.context_tokens < 256 || o.context_tokens > 131072 ||
         o.max_output_tokens == 0 || o.max_output_tokens >= o.context_tokens ||
         o.batch_tokens == 0 || o.batch_tokens > o.context_tokens ||
-        o.threads < 1 || o.threads > 256 || o.timeout_ms < 1 || o.timeout_ms > 3600000)
+        o.threads < 1 || o.threads > 256 || o.timeout_ms < 1 || o.timeout_ms > 3600000 ||
+        o.max_checkpoint_bytes == 0 || o.max_checkpoint_bytes > 4294967296ULL)
         throw Error("invalid inference limits");
 }
 } // namespace
@@ -74,6 +76,8 @@ struct LlamaBackend::Impl {
     std::vector<llama_token> cached;
     std::string cached_subject;
     std::string identity;
+    std::string pending_head;
+    std::int64_t pending_tick = -1;
     InferenceStats stats;
     std::chrono::steady_clock::time_point deadline;
     explicit Impl(LlamaOptions o) : options(std::move(o)) {
@@ -112,7 +116,7 @@ struct LlamaBackend::Impl {
     void check_deadline() {
         if (interrupted()) throw Error("inference cancelled or deadline exceeded");
     }
-    void release() { context.reset(); cached.clear(); cached_subject.clear(); }
+    void release() { context.reset(); cached.clear(); cached_subject.clear(); pending_head.clear(); pending_tick = -1; }
     void create_context() {
         if (context) return;
         check_deadline();
@@ -123,6 +127,73 @@ struct LlamaBackend::Impl {
         p.abort_callback = abort; p.abort_callback_data = this;
         context.reset(llama_init_from_model(model.get(), p));
         if (!context) throw Error("llama context allocation failed");
+    }
+    json compatibility() const {
+        return {{"backend", identity}, {"build", COGG_CHECKPOINT_BUILD},
+            {"state_format", "llama-sequence/" + std::string(revision)},
+            {"system", llama_print_system_info()}, {"pointer_bytes", sizeof(void*)},
+            {"endian", std::endian::native == std::endian::little ? "little" : "big"},
+            {"effective_context", llama_n_ctx(context.get())}};
+    }
+    void restore(const Present& p) {
+        if (options.checkpoint_directory.empty()) return;
+        stats.checkpoint_read = "missing";
+        try {
+            auto cp = read_checkpoint(checkpoint_path(options.checkpoint_directory, p.state.subject),
+                                      options.max_checkpoint_bytes);
+            if (!cp) return;
+            const auto& m = cp->metadata;
+            if (m.at("schema") != "cogg-checkpoint/v1" || !m.at("tick").is_number_integer() ||
+                m.at("subject") != p.state.subject ||
+                m.at("head") != p.state.head || m.at("tick") != p.state.tick)
+                throw Error("checkpoint subject or committed head mismatch");
+            if (m.at("compatibility") != compatibility()) throw Error("checkpoint backend compatibility mismatch");
+            if (!m.at("tokens").is_array() || m.at("tokens").empty() ||
+                m.at("tokens").size() >= options.context_tokens)
+                throw Error("invalid checkpoint token count");
+            std::vector<llama_token> tokens;
+            tokens.reserve(m.at("tokens").size());
+            for (const auto& token : m.at("tokens")) {
+                if (!token.is_number_integer() || token < 0 || token >= llama_vocab_n_tokens(vocab))
+                    throw Error("invalid checkpoint token id");
+                tokens.push_back(token.get<llama_token>());
+            }
+            check_deadline();
+            // Checksums and compatibility must pass before libllama sees opaque state.
+            const auto n = llama_state_seq_set_data(context.get(), cp->state.data(), cp->state.size(), 0);
+            if (n != cp->state.size() || llama_memory_seq_pos_max(llama_get_memory(context.get()), 0) !=
+                                         static_cast<llama_pos>(tokens.size() - 1))
+                throw Error("libllama rejected checkpoint state or token positions");
+            cached = std::move(tokens); cached_subject = p.state.subject;
+            stats.checkpoint_read = "restored";
+        } catch (const std::exception& e) {
+            stats.checkpoint_read = "rejected"; stats.checkpoint_detail = e.what();
+            // set_data may have partially mutated native memory before failing.
+            // Destroy the context, rather than assuming a failed restore was atomic.
+            release(); create_context();
+        }
+    }
+    void committed(const Present& p, const Snapshot& s) {
+        if (options.checkpoint_directory.empty()) return;
+        stats.checkpoint_write = "failed";
+        if (!context || cached.empty() || cached_subject != s.subject || s.subject != p.state.subject ||
+            pending_head != p.state.head || pending_tick != p.state.tick || s.tick != pending_tick + 1)
+            throw Error("checkpoint has no matching completed proposal");
+        // No inference here: serialize only evaluated tokens, anchored to the commit
+        // that accepted this proposal. The next canonical prompt will trim divergence.
+        const auto size = llama_state_seq_get_size(context.get(), 0);
+        if (size == 0 || size > options.max_checkpoint_bytes) throw Error("checkpoint state exceeds byte limit");
+        Checkpoint cp;
+        cp.metadata = {{"schema", "cogg-checkpoint/v1"}, {"subject", s.subject},
+            {"head", s.head}, {"tick", s.tick}, {"source_head", p.state.head},
+            {"compatibility", compatibility()}, {"tokens", cached}};
+        cp.state.resize(size);
+        if (llama_state_seq_get_data(context.get(), cp.state.data(), size, 0) != size)
+            throw Error("libllama checkpoint serialization failed");
+        write_checkpoint(checkpoint_path(options.checkpoint_directory, s.subject), cp,
+                         options.max_checkpoint_bytes, options.checkpoint_hook);
+        stats.checkpoint_write = "saved";
+        pending_head.clear(); pending_tick = -1;
     }
     std::vector<llama_token> prompt(const Present& p) {
         json data = {{"subject", p.state.subject}, {"tick", p.state.tick},
@@ -163,13 +234,20 @@ struct LlamaBackend::Impl {
     }
     Proposal propose(const Present& p) {
         stats = {};
+        pending_head.clear(); pending_tick = -1;
+        if (!options.checkpoint_directory.empty()) {
+            stats.checkpoint_read = "resident";
+            stats.checkpoint_write = "not_attempted";
+        }
         deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options.timeout_ms);
         try {
             check_deadline();
             auto tokens = prompt(p);
             stats.prompt_tokens = tokens.size();
             if (cached_subject != p.state.subject) release();
+            const bool cold = !context;
             create_context();
+            if (cold) restore(p);
             std::size_t common = 0;
             while (common < cached.size() && common < tokens.size() && cached[common] == tokens[common]) ++common;
             // Re-evaluate the last token even for identical prompts to restore logits.
@@ -210,6 +288,7 @@ struct LlamaBackend::Impl {
                 if (!value.is_discarded()) {
                     auto result = parse_proposal(value);
                     check_deadline();
+                    pending_head = p.state.head; pending_tick = p.state.tick;
                     return result;
                 }
                 decode(&token, 1);
@@ -223,6 +302,7 @@ LlamaBackend::LlamaBackend(LlamaOptions options) : impl_(std::make_unique<Impl>(
 LlamaBackend::~LlamaBackend() = default;
 std::string LlamaBackend::name() const { return impl_->identity; }
 Proposal LlamaBackend::propose(const Present& p) { return impl_->propose(p); }
+void LlamaBackend::committed(const Present& p, const Snapshot& s) { impl_->committed(p, s); }
 void LlamaBackend::release_context() { impl_->release(); }
 InferenceStats LlamaBackend::stats() const { return impl_->stats; }
 } // namespace cogg

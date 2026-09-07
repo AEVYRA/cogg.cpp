@@ -1,6 +1,8 @@
 # Phase 1: one local model
 
 Version 0.2.0 continues the C++ kernel with an optional libllama backend.
+Version 0.3.0 adds [Phase 2 disk checkpoints](PHASE-2.md); the descriptions below
+of memory-only KV document the original Phase 1 boundary.
 On 2026-09-07 Sasha explicitly authorized development after reviewing the whole
 Physalia architecture. Both Physalia and an independently reusable open component
 remain goals. The earlier reuse-only direction is superseded.

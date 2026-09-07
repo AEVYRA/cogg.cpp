@@ -180,6 +180,43 @@ void thousands_of_ticks() {
     check(s.snapshot("s").tick == 2000 && s.snapshot("s").memory.at("counter") == 2000,
           "long chain failed");
 }
+void maintenance_after_commit() {
+    Temp t; Store s(t.path()); s.create("s", {1, 100, 1000}, 0);
+    struct CacheFailure : Backend {
+        Store& store; int callbacks = 0;
+        explicit CacheFailure(Store& s) : store(s) {}
+        std::string name() const override { return "cache-failure"; }
+        Proposal propose(const Present&) override { Proposal p; p.memory = {{"durable", true}}; return p; }
+        void committed(const Present& before, const Snapshot& after) override {
+            ++callbacks;
+            check(after.tick == before.state.tick + 1 && store.snapshot("s").head == after.head,
+                  "maintenance ran before durable commit");
+            throw Error("cache disk full");
+        }
+    } backend(s);
+    Runtime runtime(s, backend);
+    auto result = runtime.step("s", 0);
+    check(result && result->tick == 1 && result->memory.at("durable") == true, "cache failure hid durable commit");
+    check(runtime.maintenance_error() == "cache disk full", "maintenance failure not observable");
+    check(s.timeline("s").at("attempts").at(0).at("status") == "committed", "cache error marked inference failed");
+    check(!runtime.step("s", 1) && backend.callbacks == 1 && runtime.maintenance_error().empty(), "cache failure retried subject act");
+    s.verify("s");
+    s.submit("s", "next", {{"text", "next"}}, 2);
+    struct Superseded : Backend {
+        Store& store; int callbacks = 0;
+        explicit Superseded(Store& s) : store(s) {}
+        std::string name() const override { return "loser"; }
+        Proposal propose(const Present&) override {
+            auto winning = store.admit("s", "winner", 3);
+            check(winning.has_value(), "missing competing admission");
+            store.commit(winning->id, Proposal{}, 3); return {};
+        }
+        void committed(const Present&, const Snapshot&) override { ++callbacks; }
+    } loser(s);
+    Runtime race(s, loser);
+    check(!race.step("s", 2) && loser.callbacks == 0, "superseded proposal published cache");
+    s.verify("s");
+}
 }
 int main() {
     const std::pair<const char*, void(*)()> cases[] = {
@@ -194,6 +231,7 @@ int main() {
         {"corrupt history", corrupt_history_fails_verification},
         {"subject isolation", subject_isolation},
         {"runtime failure budget and recovery verification", runtime_failure_and_corruption_gate},
+        {"post-commit maintenance failure and stale proposal", maintenance_after_commit},
         {"2000 persistent ticks", thousands_of_ticks}
     };
     try {

@@ -1,7 +1,8 @@
 > Implementation note, 2026-09-07: this document is a research roadmap.
-> Phase 0 is implemented; see [current contract](docs/PHASE-0.md) and
-> [prior-art review](docs/RESEARCH-2026-09-07.md). Later phases, libllama, KV
-> checkpointing, signatures, Crystal and multi-substrate cognition remain planned.
+> Phases 0–2 are implemented; see [kernel](docs/PHASE-0.md),
+> [local inference](docs/PHASE-1.md), [durable checkpoints](docs/PHASE-2.md) and
+> [prior-art review](docs/RESEARCH-2026-09-07.md). Later phases, signatures,
+> Crystal and multi-substrate cognition remain planned.
 > The original design below is preserved; its examples are not current APIs.
 
 # cogg.cpp

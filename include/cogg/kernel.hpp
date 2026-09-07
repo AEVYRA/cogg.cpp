@@ -88,15 +88,20 @@ public:
     virtual ~Backend() = default;
     virtual std::string name() const = 0;
     virtual Proposal propose(const Present&) = 0;
+    // Optional cache/maintenance work after a successful durable commit.
+    // Exceptions cannot undo the commit and are reported by Runtime separately.
+    virtual void committed(const Present&, const Snapshot&) {}
 };
 class Runtime {
 public:
     Runtime(Store& store, Backend& backend) : store_(store), backend_(backend) {}
     std::optional<Snapshot> step(const std::string& subject, millis now);
+    const std::string& maintenance_error() const { return maintenance_error_; }
 private:
     Store& store_;
     Backend& backend_;
     std::set<std::string> verified_;
+    std::string maintenance_error_;
 };
 millis wall_now();
 } // namespace cogg

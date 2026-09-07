@@ -40,6 +40,7 @@ void usage() {
                  "cogg-cli run-model DB SUBJECT MODEL.gguf [--steps N] [--ctx N]\n"
                  "    [--tokens N] [--threads N] [--timeout-ms N] [--template NAME]\n"
                  "    [--release-context] [--once]\n"
+                 "    [--checkpoint-dir DIRECTORY] [--checkpoint-mib N]\n"
                  "cogg-cli inspect DB SUBJECT\n"
                  "cogg-cli verify DB SUBJECT\n"
                  "run uses the deterministic demo backend; 0 steps runs until interrupted.\n"
@@ -76,9 +77,14 @@ int main(int argc, char** argv) {
                 if (flag == "--once") { once = true; continue; }
                 if (++i >= argc) throw cogg::Error("missing value for " + flag);
                 if (flag == "--template") { options.chat_template = argv[i]; continue; }
+                if (flag == "--checkpoint-dir") { options.checkpoint_directory = argv[i]; continue; }
                 const auto n = number(argv[i]);
                 if (flag == "--steps") steps = n;
                 else if (flag == "--timeout-ms") options.timeout_ms = n;
+                else if (flag == "--checkpoint-mib") {
+                    if (n < 1 || n > 4096) throw cogg::Error("checkpoint limit must be 1..4096 MiB");
+                    options.max_checkpoint_bytes = static_cast<std::uint64_t>(n) * 1048576;
+                }
                 else {
                     if (n > 131072) throw cogg::Error("inference option too large");
                     if (flag == "--ctx") options.context_tokens = static_cast<std::uint32_t>(n);
@@ -103,7 +109,10 @@ int main(int argc, char** argv) {
                         {"proposal", store.record(s->head).at("proposal")},
                         {"wake_at", s->wake_at ? cogg::json(*s->wake_at) : cogg::json(nullptr)},
                         {"inference", {{"prompt_tokens", stats.prompt_tokens},
-                            {"reused_tokens", stats.reused_tokens}, {"generated_tokens", stats.generated_tokens}}}}).dump() << std::endl;
+                            {"reused_tokens", stats.reused_tokens}, {"generated_tokens", stats.generated_tokens}}},
+                        {"checkpoint", {{"read", stats.checkpoint_read}, {"write", stats.checkpoint_write},
+                            {"detail", stats.checkpoint_detail}}},
+                        {"maintenance_error", runtime.maintenance_error()}}).dump() << std::endl;
                     if (release) backend.release_context();
                 } else if (!once) std::this_thread::sleep_for(std::chrono::milliseconds(25));
                 if (once) break;

@@ -21,7 +21,8 @@ def main():
             return result.stdout
 
         run("init", db, "s", "1", "100", "3600000")
-        command = [cli, "run-model", db, "s", model, "--once", "--timeout-ms", "60000"]
+        command = [cli, "run-model", db, "s", model, "--once", "--timeout-ms", "60000",
+                   "--checkpoint-dir", folder]
         with open(pathlib.Path(folder) / "child.log", "w") as log:
             child = subprocess.Popen(command, stdout=log, stderr=log)
             try:
@@ -48,6 +49,7 @@ def main():
         run("verify", db, "s")
         resumed = json.loads(run(*command[1:]))
         assert resumed["tick"] == 1
+        assert resumed["checkpoint"]["write"] == "saved"
         history = json.loads(run("inspect", db, "s"))
         assert len(history["attempts"]) == 2
         assert history["attempts"][1]["body"]["prior_unsettled"]
@@ -56,9 +58,30 @@ def main():
         run("send", db, "s", "hello-1", "Say hello briefly, then wait for my next message.")
         subsequent = json.loads(run(*command[1:]))
         assert subsequent["tick"] == 2
+        assert subsequent["checkpoint"]["read"] == "restored"
+        assert subsequent["inference"]["reused_tokens"] > 0
+        checkpoint = next(pathlib.Path(folder).glob("*.coggkv"))
+        data = bytearray(checkpoint.read_bytes())
+        data[-1] ^= 1
+        checkpoint.write_bytes(data)
+        run("send", db, "s", "corrupt-recovery", "Say hello briefly.")
+        recovered = json.loads(run(*command[1:]))
+        assert recovered["tick"] == 3 and recovered["checkpoint"]["read"] == "rejected"
+        assert recovered["checkpoint"]["write"] == "saved"
+        checkpoint.unlink()
+        run("send", db, "s", "missing-recovery", "Say hello briefly.")
+        cold = json.loads(run(*command[1:]))
+        assert cold["tick"] == 4 and cold["checkpoint"]["read"] == "missing"
+        run("send", db, "s", "changed-context", "Say hello briefly.")
+        changed = json.loads(run(*command[1:], "--ctx", "2048"))
+        assert changed["tick"] == 5 and changed["checkpoint"]["read"] == "rejected"
+        assert "compatibility" in changed["checkpoint"]["detail"]
+        assert changed["checkpoint"]["write"] == "saved"
         run("verify", db, "s")
         print(json.dumps({"result": "PASS", "killed_tick": 0, "recovered_tick": 1,
-                          "next_process_tick": 2, "proposal": subsequent["proposal"]}))
+                          "restored_checkpoint_tick": 2, "corrupt_checkpoint_tick": 3,
+                          "deleted_checkpoint_tick": 4, "changed_context_tick": 5,
+                          "proposal": changed["proposal"]}))
 
 
 if __name__ == "__main__":

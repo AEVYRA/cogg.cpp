@@ -482,6 +482,7 @@ json Store::record(const std::string& id) {
     return body;
 }
 std::optional<Snapshot> Runtime::step(const std::string& subject, millis now) {
+    maintenance_error_.clear();
     if (!verified_.count(subject)) {
         store_.verify(subject);
         verified_.insert(subject);
@@ -489,17 +490,24 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now) {
     auto a = store_.admit(subject, backend_.name(), now);
     if (!a) return std::nullopt;
     const auto started = std::chrono::steady_clock::now();
+    Snapshot result;
     try {
         auto p = backend_.propose(a->present);
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started).count();
-        return store_.commit(a->id, p, add(now, elapsed));
+        result = store_.commit(a->id, p, add(now, elapsed));
     } catch (const Conflict&) {
         store_.fail(a->id, "stale transition");
         return std::nullopt;
     } catch (const std::exception& e) {
         store_.fail(a->id, e.what()); throw;
     }
+    // A cache is not part of the subject transaction. Do not turn a cache error
+    // into a failed inference or conceal a successful durable commit from callers.
+    try { backend_.committed(a->present, result); }
+    catch (const std::exception& e) { maintenance_error_ = e.what(); }
+    catch (...) { maintenance_error_ = "backend maintenance failed"; }
+    return result;
 }
 millis wall_now() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
