@@ -39,6 +39,8 @@ public:
     LlamaBackend& operator=(const LlamaBackend&) = delete;
     std::string name() const override;
     Proposal propose(const Present&) override;
+    std::optional<MemoryPolicy> memory_policy() const override;
+    bool context_fits(const Present&) const override;
     void committed(const Present&, const Snapshot&) override;
     void release_context();
     InferenceStats stats() const;

@@ -1,4 +1,5 @@
 #include "cogg/kernel.hpp"
+#include "memory_internal.hpp"
 #include <sqlite3.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -58,6 +59,7 @@ json limits_json(Limits l) {
             {"period_ms", l.period_ms}, {"max_wake_ms", l.max_wake_ms}};
 }
 void validate(const Proposal& p) {
+    validate_memory_notes(p.notes);
     require(p.kind == "null" || p.kind == "reflection" || p.kind == "speech",
             "unsupported transition kind");
     require(p.text.size() <= max_payload, "speech too large");
@@ -126,12 +128,14 @@ json proposal_json(const Proposal& p) {
     validate(p);
     json writes = json::array();
     for (const auto& w : p.memory) writes.push_back({{"key", w.key}, {"value", w.value}});
-    return {{"kind", p.kind}, {"text", p.text}, {"memory", writes},
+    json result = {{"kind", p.kind}, {"text", p.text}, {"memory", writes},
             {"wake_after_ms", optional_time(p.wake_after_ms)}};
+    if (!p.notes.empty()) { result["notes"] = json::array(); for (const auto& n : p.notes) result["notes"].push_back(memory_note_json(n)); }
+    return result;
 }
 Proposal parse_proposal(const json& j) {
     require(j.is_object(), "transition must be an object");
-    const std::set<std::string> fields = {"kind", "text", "memory", "wake_after_ms"};
+    const std::set<std::string> fields = {"kind", "text", "memory", "wake_after_ms", "notes"};
     for (const auto& [key, value] : j.items()) {
         (void)value;
         require(fields.count(key) != 0, "unknown transition field: " + key);
@@ -153,6 +157,10 @@ Proposal parse_proposal(const json& j) {
                     "invalid memory write");
             p.memory.push_back({w.at("key").get<std::string>(), w.at("value")});
         }
+    }
+    if (j.contains("notes")) {
+        require(j.at("notes").is_array(), "notes must be an array");
+        for (const auto& n : j.at("notes")) p.notes.push_back(parse_memory_note(n));
     }
     validate(p); return p;
 }
@@ -306,7 +314,7 @@ Store::Store(const std::string& path) : impl_(std::make_unique<Impl>()) {
     Transaction tx(db);
     {
         Statement q(db, "PRAGMA user_version"); q.row();
-        require(q.number(0) == 0 || q.number(0) == 1 || q.number(0) == 2, "unsupported database version");
+        require(q.number(0) == 0 || q.number(0) == 1 || q.number(0) == 2 || q.number(0) == 3, "unsupported database version");
     }
     sql(db, R"SQL(
 CREATE TABLE IF NOT EXISTS subjects(
@@ -328,8 +336,9 @@ CREATE TABLE IF NOT EXISTS commits(
  id TEXT PRIMARY KEY, subject TEXT NOT NULL REFERENCES subjects(id),
  tick INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(subject,tick));
 PRAGMA application_id=1129269063;
-PRAGMA user_version=2;
+PRAGMA user_version=3;
 )SQL");
+    detail::memory_schema(db);
     tx.commit();
 }
 Store::~Store() = default;
@@ -339,7 +348,7 @@ void Store::create(const std::string& subject, Limits limits, millis now, const 
     check_text(subject, 128, "subject"); check_time(now);
     auto l = limits_json(limits);
     Transaction tx(impl_->db);
-    json genesis = {{"schema", 2}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
+    json genesis = {{"schema", 3}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
                     {"created_at", now}, {"nonce", random_id()}, {"limits", l},
                     {"memory", initial_memory}, {"wake_at", nullptr}};
     const auto id = hash(genesis);
@@ -359,7 +368,9 @@ std::string Store::submit(const std::string& subject, const std::string& key,
     auto id = impl_->enqueue(impl_->snapshot(subject), "user:" + key, "external", payload, now);
     tx.commit(); return id;
 }
-std::optional<Attempt> Store::admit(const std::string& subject, const std::string& backend, millis now) {
+std::optional<Attempt> Store::admit(const std::string& subject, const std::string& backend, millis now,
+                                    const std::optional<MemoryPolicy>& memory_policy,
+                                    const std::function<bool(const Present&)>& fits) {
     check_time(now); check_text(backend, 200, "backend");
     auto* db = impl_->db;
     Transaction tx(db);
@@ -386,17 +397,25 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
     bool unsettled = prior.number(0) > 0;
     Statement account(db, "UPDATE subjects SET accounting_wall=? WHERE id=?");
     account.bind(1, now).bind(2, subject).done();
-    json body = {{"schema", 2}, {"nonce", random_id()}, {"subject", subject},
+    json body = {{"schema", 3}, {"nonce", random_id()}, {"subject", subject},
                  {"parent", s.head}, {"tick", s.tick}, {"occasion", o.id},
                  {"backend", backend}, {"admitted_at", now}, {"prior_unsettled", unsettled},
                  {"wall_observed_at", observed}, {"temporal", temporal}};
+    Present present{s, o, unsettled, temporal};
+    if (memory_policy) {
+        auto policy = *memory_policy;
+        if (policy.query.empty()) policy.query = o.payload.is_object() && o.payload.contains("text") && o.payload.at("text").is_string() ? o.payload.at("text").get<std::string>() : "";
+        auto candidates = detail::memory_candidates(db, subject, policy);
+        detail::project_memory(present, candidates, policy, fits);
+        body["context"] = {{"memory", present.working_memory}, {"view", present.memory_view}};
+    }
     const auto id = hash(body);
     Statement insert(db, "INSERT INTO attempts(id,subject,parent,occasion,admitted_at,body,status) "
                          "VALUES(?,?,?,?,?,?,'reserved')");
     insert.bind(1, id).bind(2, subject).bind(3, s.head).bind(4, o.id).bind(5, now)
           .bind(6, body.dump()).done();
     tx.commit();
-    return Attempt{id, Present{s, o, unsettled, temporal}};
+    return Attempt{id, present};
 }
 
 Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, millis now,
@@ -435,12 +454,13 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     auto limits = impl_->config(subject);
     const auto plan = impl_->wake_plan(subject, limits, proposal, now);
     const auto wake = read_time(plan.at("granted_at"));
-    json body = {{"schema", 2}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
+    json body = {{"schema", 3}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
                  {"occasion", oid}, {"attempt", attempt}, {"proposal", p},
                  {"memory", memory}, {"wake_at", optional_time(wake)}, {"committed_at", now},
                  {"wall_observed_at", observed}, {"wake_plan", plan},
                  {"inference_elapsed_ms", optional_time(inference_elapsed_ms)}};
     auto id = hash(body);
+    detail::memory_apply(db, subject, s.head, tick, id, proposal.notes);
     Statement insert(db, "INSERT INTO commits VALUES(?,?,?,?)");
     insert.bind(1, id).bind(2, subject).bind(3, tick).bind(4, body.dump()).done();
     Statement head(db, "UPDATE subjects SET tick=?,head=?,memory=?,wake=?,accounting_wall=? WHERE id=? AND head=?");
@@ -499,7 +519,8 @@ json Store::timeline(const std::string& subject) {
                                                 {"consumed", e.text(2)}});
     tx.commit(); return result;
 }
-void Store::verify(const std::string& subject) {
+void Store::verify(const std::string& subject) { verify_impl(subject, true); }
+void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     auto* db = impl_->db;
     Transaction tx(db, false);
     Statement integrity(db, "PRAGMA integrity_check");
@@ -516,7 +537,7 @@ void Store::verify(const std::string& subject) {
     while (q.row()) {
         auto b = json::parse(q.text(2));
         require(q.number(1) == tick && b.at("tick") == tick && b.at("subject") == subject &&
-                (b.at("schema") == 1 || b.at("schema") == 2) && hash(b) == q.text(0), "commit integrity failure");
+                (b.at("schema") == 1 || b.at("schema") == 2 || b.at("schema") == 3) && hash(b) == q.text(0), "commit integrity failure");
         if (tick == 0) {
             committed_wall = b.at("created_at").get<millis>();
             check_time(committed_wall);
@@ -586,7 +607,7 @@ void Store::verify(const std::string& subject) {
                 attempts.number(4) >= previous, "admission integrity failure");
         const auto event = impl_->event(attempts.text(3));
         require(event.at("subject") == subject, "foreign admitted occasion");
-        if (b.at("schema") == 2) {
+        if (b.at("schema").get<int>() >= 2) {
             const auto at = attempts.number(4);
             const auto expected = impl_->budget(subject, impl_->config(subject), at, attempts.number(6) - 1);
             const auto& temporal = b.at("temporal");
@@ -607,6 +628,7 @@ void Store::verify(const std::string& subject) {
     Statement accounting(db, "SELECT accounting_wall FROM subjects WHERE id=?");
     accounting.bind(1, subject); accounting.row();
     require(accounting.number(0) == std::max(committed_wall, previous), "accounting projection mismatch");
+    detail::memory_verify(db, subject, compare_memory_index);
     tx.commit();
 }
 json Store::record(const std::string& id) {
@@ -623,7 +645,8 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now) {
         store_.verify(subject);
         verified_.insert(subject);
     }
-    auto a = store_.admit(subject, backend_.name(), now);
+    auto a = store_.admit(subject, backend_.name(), now, backend_.memory_policy(),
+                          [&](const Present& p) { return backend_.context_fits(p); });
     if (!a) return std::nullopt;
     const auto started = std::chrono::steady_clock::now();
     Snapshot result;
@@ -644,6 +667,26 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now) {
     catch (const std::exception& e) { maintenance_error_ = e.what(); }
     catch (...) { maintenance_error_ = "backend maintenance failed"; }
     return result;
+}
+json Store::recall(const std::string& subject, MemoryPolicy policy) {
+    verify(subject);
+    Transaction tx(impl_->db, false);
+    Present present; present.state = impl_->snapshot(subject);
+    detail::project_memory(present, detail::memory_candidates(impl_->db, subject, policy), policy, {});
+    auto result = json{{"memory", present.working_memory}, {"view", present.memory_view}};
+    tx.commit(); return result;
+}
+json Store::memory_record(const std::string& subject, const std::string& id) {
+    verify(subject);
+    Statement q(impl_->db, "SELECT body FROM memory_entries WHERE subject=? AND id=?");
+    q.bind(1, subject).bind(2, id); require(q.row(), "unknown or foreign memory source");
+    return json::parse(q.text(0));
+}
+void Store::rebuild_memory(const std::string& subject) {
+    verify_impl(subject, false);
+    Transaction tx(impl_->db);
+    detail::memory_rebuild(impl_->db, subject);
+    tx.commit(); verify(subject);
 }
 millis wall_now() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(

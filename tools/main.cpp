@@ -46,6 +46,9 @@ void usage() {
                  "cogg-cli duration DB SUBJECT FROM-COMMIT TO-COMMIT\n"
                  "cogg-cli inspect DB SUBJECT\n"
                  "cogg-cli verify DB SUBJECT\n"
+                 "cogg-cli recall DB SUBJECT QUERY [max-bytes strategy history]\n"
+                 "cogg-cli rebuild-memory DB SUBJECT\n"
+                 "cogg-cli memory-record DB SUBJECT NOTE-ID\n"
                  "run uses the deterministic demo backend; 0 steps runs until interrupted.\n"
                  "idle-base-ms=0 requests no autonomous wake. Positive values enable demo wakes.\n";
 }
@@ -76,6 +79,14 @@ int main(int argc, char** argv) {
             std::cout << store.duration(subject, argv[4], argv[5]).dump() << '\n';
         } else if (command == "inspect" && argc == 4) {
             std::cout << store.timeline(subject).dump(2) << '\n';
+        } else if (command == "recall" && (argc == 5 || argc == 8)) {
+            cogg::MemoryPolicy policy; policy.query = argv[4];
+            if (argc == 8) { policy.max_bytes = static_cast<std::size_t>(number(argv[5])); policy.strategy = argv[6]; policy.history = number(argv[7]) != 0; }
+            std::cout << store.recall(subject, policy).dump(2) << '\n';
+        } else if (command == "memory-record" && argc == 5) {
+            std::cout << store.memory_record(subject, argv[4]).dump(2) << '\n';
+        } else if (command == "rebuild-memory" && argc == 4) {
+            store.rebuild_memory(subject); std::cout << "rebuilt memory index; subject unchanged\n";
         } else if (command == "verify" && argc == 4) {
             store.verify(subject);
             std::cout << "verified " << subject << " tick=" << store.snapshot(subject).tick << '\n';

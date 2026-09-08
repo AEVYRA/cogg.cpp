@@ -10,6 +10,7 @@
 #include <vector>
 #include <utility>
 #include <nlohmann/json.hpp>
+#include "cogg/memory.hpp"
 
 namespace cogg {
 using json = nlohmann::json;
@@ -44,6 +45,8 @@ struct Present {
     bool prior_unsettled_attempt = false;
     // Runtime-issued clock, wake provenance and admission accounting.
     json temporal = json::object();
+    json working_memory = nullptr; // Selected legacy keys; Snapshot remains complete.
+    json memory_view = nullptr; // Frozen retrieval receipt and source-addressed deposits.
 };
 struct MemoryWrite { std::string key; json value; };
 struct Proposal {
@@ -51,6 +54,7 @@ struct Proposal {
     std::string text;
     std::vector<MemoryWrite> memory;
     std::optional<millis> wake_after_ms;
+    std::vector<MemoryNote> notes;
 };
 // Untrusted JSON has no tick, head, signature, or storage mutation fields.
 Proposal parse_proposal(const json& value);
@@ -76,7 +80,9 @@ public:
     std::string submit(const std::string& subject, const std::string& key,
                        const json& payload, millis now);
     std::optional<Attempt> admit(const std::string& subject,
-                                const std::string& backend, millis now);
+                                const std::string& backend, millis now,
+                                const std::optional<MemoryPolicy>& memory_policy = std::nullopt,
+                                const std::function<bool(const Present&)>& fits = {});
     Snapshot commit(const std::string& attempt, const Proposal& proposal, millis now,
                     const std::function<void(CommitPoint)>& fault_hook = {},
                     std::optional<millis> inference_elapsed_ms = std::nullopt);
@@ -89,7 +95,11 @@ public:
     json timeline(const std::string& subject);
     json record(const std::string& id);
     void verify(const std::string& subject);
+    json recall(const std::string& subject, MemoryPolicy policy = {});
+    void rebuild_memory(const std::string& subject);
+    json memory_record(const std::string& subject, const std::string& id);
 private:
+    void verify_impl(const std::string& subject, bool compare_memory_index);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
@@ -99,6 +109,9 @@ public:
     virtual ~Backend() = default;
     virtual std::string name() const = 0;
     virtual Proposal propose(const Present&) = 0;
+    virtual std::optional<MemoryPolicy> memory_policy() const { return std::nullopt; }
+    // Trusted pure host callback: complete prompt plus reserved output must fit.
+    virtual bool context_fits(const Present&) const { return true; }
     // Optional cache/maintenance work after a successful durable commit.
     // Exceptions cannot undo the commit and are reported by Runtime separately.
     virtual void committed(const Present&, const Snapshot&) {}

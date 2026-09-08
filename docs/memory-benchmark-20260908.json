@@ -1,0 +1,162 @@
+{
+  "budgets": {
+    "candidate_limit": 64,
+    "max_bytes": 2400,
+    "max_items": 4
+  },
+  "fixture": "hand-authored-contract-cases/v1",
+  "schema": "cogg:memory-comparison/v1",
+  "scope": "Evidence selection only; no answer-generating model or competitor deployment. Cases are deterministic mechanism probes, not an external quality benchmark.",
+  "strategies": [
+    {
+      "cases": 6,
+      "evidence_hits": 1,
+      "mean_latency_ms": 94.78224616666667,
+      "results": [
+        {
+          "bytes": 2268,
+          "case": "covered exact detail",
+          "hit": false,
+          "latency_ms": 90.574471,
+          "stale": false
+        },
+        {
+          "bytes": 2268,
+          "case": "corrected fact",
+          "hit": false,
+          "latency_ms": 86.717022,
+          "stale": false
+        },
+        {
+          "bytes": 2261,
+          "case": "prospective unrelated occasion",
+          "hit": false,
+          "latency_ms": 116.492723,
+          "stale": false
+        },
+        {
+          "bytes": 2269,
+          "case": "Unicode old fact",
+          "hit": false,
+          "latency_ms": 94.854106,
+          "stale": false
+        },
+        {
+          "bytes": 2271,
+          "case": "paraphrase counterexample",
+          "hit": false,
+          "latency_ms": 85.080777,
+          "stale": false
+        },
+        {
+          "bytes": 2271,
+          "case": "recent information",
+          "hit": true,
+          "latency_ms": 94.974378,
+          "stale": false
+        }
+      ],
+      "strategy": "recent"
+    },
+    {
+      "cases": 6,
+      "evidence_hits": 4,
+      "mean_latency_ms": 91.48377216666667,
+      "results": [
+        {
+          "bytes": 1077,
+          "case": "covered exact detail",
+          "hit": true,
+          "latency_ms": 87.212279,
+          "stale": false
+        },
+        {
+          "bytes": 643,
+          "case": "corrected fact",
+          "hit": true,
+          "latency_ms": 82.483216,
+          "stale": false
+        },
+        {
+          "bytes": 2262,
+          "case": "prospective unrelated occasion",
+          "hit": false,
+          "latency_ms": 109.270646,
+          "stale": false
+        },
+        {
+          "bytes": 665,
+          "case": "Unicode old fact",
+          "hit": true,
+          "latency_ms": 90.842802,
+          "stale": false
+        },
+        {
+          "bytes": 328,
+          "case": "paraphrase counterexample",
+          "hit": false,
+          "latency_ms": 86.44303,
+          "stale": false
+        },
+        {
+          "bytes": 2272,
+          "case": "recent information",
+          "hit": true,
+          "latency_ms": 92.65066,
+          "stale": false
+        }
+      ],
+      "strategy": "lexical"
+    },
+    {
+      "cases": 6,
+      "evidence_hits": 5,
+      "mean_latency_ms": 100.04385583333334,
+      "results": [
+        {
+          "bytes": 2033,
+          "case": "covered exact detail",
+          "hit": true,
+          "latency_ms": 101.628715,
+          "stale": false
+        },
+        {
+          "bytes": 2247,
+          "case": "corrected fact",
+          "hit": true,
+          "latency_ms": 115.051537,
+          "stale": false
+        },
+        {
+          "bytes": 1921,
+          "case": "prospective unrelated occasion",
+          "hit": true,
+          "latency_ms": 120.49787,
+          "stale": false
+        },
+        {
+          "bytes": 2269,
+          "case": "Unicode old fact",
+          "hit": true,
+          "latency_ms": 84.980353,
+          "stale": false
+        },
+        {
+          "bytes": 1931,
+          "case": "paraphrase counterexample",
+          "hit": false,
+          "latency_ms": 85.378684,
+          "stale": false
+        },
+        {
+          "bytes": 1931,
+          "case": "recent information",
+          "hit": true,
+          "latency_ms": 92.725976,
+          "stale": false
+        }
+      ],
+      "strategy": "balanced"
+    }
+  ]
+}

@@ -13,6 +13,7 @@ If the host process is interrupted mid-generation, `cogg.cpp` can recover the la
 * **Durable Subject:** Every agent (subject) has a monotonic logical clock and a SHA-256 commit chain. Memory, state, and inbox consumption are saved in atomic SQLite transactions.
 * **Autonomous Scheduling (Endogenous Time):** The model can request its next wake-up time. The kernel enforces admission budgets, minimum/maximum sleep intervals, and quotas, decoupling raw CPU time from the agent's subjective continuation.
 * **Crash-Resilient Inference:** Powered by an embedded `llama.cpp` backend. KV caches are persisted to disk and tied to specific commit hashes, enabling seamless warm/cold process restoration after a crash or eviction.
+* **Bounded Working Memory:** Typed deposits remain in durable history while the model receives a selected context. Open tasks, source-linked summaries and version-aware retrieval are checked by the kernel.
 * **Idempotent Inbox:** External events and messages queue safely and survive process exits.
 
 ## Relationship with llama.cpp
@@ -26,24 +27,24 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 ## Status
 
-**Current Version: 0.4.0 (Experimental Phase 3)**
+**Current Version: 0.5.0 (Experimental Phase 4)**
 
 - [x] **Phase 0:** Durable kernel contract
 - [x] **Phase 1:** Local model build and inference (libllama)
 - [x] **Phase 2:** Durable checkpoint usage (KV cache)
 - [x] **Phase 3 mechanisms:** Explicit commit time and bounded model-requested scheduling
 - [ ] **Phase 3 validation:** Real 48-hour observation and state-dependent waking assessment; see [protocol](docs/PHASE-3.md)
-- [ ] **Phase 4:** Memory retrieval and compaction
+- [x] **Phase 4 mechanisms:** Typed deposits, bounded working context, retrieval and source-preserving compaction; [contract and evidence](docs/PHASE-4.md)
 - [ ] **Phase 5:** Multiple substrates and routing
 - [ ] **Phase 6:** Cognitive integration and disagreement
 - [ ] **Phase 7:** Crystal / self-model
 - [ ] **Phase 8:** Multimodal perception
 
-Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-roadmap).
+Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-phases).
 
 ## Build Instructions
 
-**Dependencies:** C++20 compiler, CMake 3.20+, SQLite3, OpenSSL (`libcrypto`), and `nlohmann/json` 3.10+.  
+**Dependencies:** C++20 compiler, CMake 3.20+, SQLite3 with FTS5, OpenSSL (`libcrypto`), and `nlohmann/json` 3.10+.
 *Note: The runtime does not require a Python interpreter or any external model services.*
 
 **Debian/Ubuntu:**
