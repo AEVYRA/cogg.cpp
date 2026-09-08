@@ -197,11 +197,24 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
     auto elapsed = [&] { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(); };
     auto fail = [&](const char* status) { store_.fail(a->id, status); result.status = status; };
     Outcome outcome;
+    const char* failure = nullptr;
     try { outcome = backend_.respond_attempt(*a, timeout, cancelled); (void)outcome_json(outcome); }
-    catch (...) { fail("backend_failed"); return result; }
+    catch (const BackendFailure& error) {
+        switch (error.kind) {
+            case FailureKind::transport: failure = "transport_failed"; break;
+            case FailureKind::timeout: failure = "timeout"; break;
+            case FailureKind::invalid_output: failure = "invalid_output"; break;
+            case FailureKind::credentials: failure = "credentials_unavailable"; break;
+            default: failure = "backend_failed";
+        }
+    }
+    catch (...) { failure = "backend_failed"; }
+    // Cancellation/deadline remain authoritative even when the backend throws.
+    // Never persist an untrusted provider exception message.
     if (cancelled && cancelled()) { fail("cancelled"); return result; }
     const auto duration = elapsed();
     if (duration >= timeout) { fail("timeout"); return result; }
+    if (failure) { fail(failure); return result; }
     result.outcome = outcome_json(outcome);
     if (const auto* p = std::get_if<Proposal>(&outcome)) {
         try { apply(state, *p, g, std::string(64, '0')); (void)view_of(state, subject, std::string(64, '0')); }

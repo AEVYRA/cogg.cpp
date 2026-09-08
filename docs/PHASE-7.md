@@ -134,6 +134,10 @@ The grant request contains only optional `create`, `settle`, `profile` fields.
 Save the emitted grant JSON before passing it to `run`; `-` means no self rights.
 Choosing an executor in this example explicitly authorizes its configured transport.
 Exit codes: 0 committed/waiting, 4 abstained, 3 unsuccessful attempt, 2 host error.
+Since v0.8.1, typed backend failures retain `transport_failed`, `timeout`,
+`invalid_output`, `credentials_unavailable` or `backend_failed` in the result and
+attempt ledger. Cancellation and elapsed deadlines take precedence even if the
+backend throws. Provider exception messages are never copied into this ledger.
 `outcome` in an unsuccessful result is the rejected candidate, never an accepted
 subject response. Use `status` and the verified `view` when presenting results.
 

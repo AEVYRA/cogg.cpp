@@ -29,7 +29,9 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 ## Status
 
-**Current Version: 0.8.0 (Experimental Phase 7)**
+**Current Version: 0.8.1 (Experimental Phase 7)**
+
+The [0.8.1 repairs](docs/REPAIRS-2026-09-08.md) preserve routing after open-task capacity failures and report self-runtime transport, timeout and cancellation outcomes accurately.
 
 - [x] **Phase 0:** Durable kernel contract
 - [x] **Phase 1:** Local model build and inference (libllama)

@@ -97,6 +97,9 @@ Legacy working keys and typed records compete for the same selected-context
 budget after open tasks. Unselected large records are skipped without destructive
 truncation. A too-large fixed context or mandatory open-task set produces an
 explicit `memory pressure` error. It does not pretend all obligations fitted.
+As of v0.8.1, exceeding the open-task item count consistently raises
+`ContextOverflow`, like byte/token overflow. An explicitly configured route can
+then try an executor with sufficient capacity without charging the skipped attempt.
 
 The libllama adapter opts into this projection. During admission its pure
 `context_fits` callback tokenizes the **complete formatted prompt** and reserves

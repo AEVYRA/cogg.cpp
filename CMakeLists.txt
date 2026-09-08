@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(cogg VERSION 0.8.0 LANGUAGES CXX)
+project(cogg VERSION 0.8.1 LANGUAGES CXX)
 option(COGG_SANITIZE "Enable address and undefined-behavior sanitizers" OFF)
 option(COGG_HTTP "Build Ollama and Chat Completions adapters" OFF)
 option(COGG_SELF "Build the optional self-state host policy" OFF)

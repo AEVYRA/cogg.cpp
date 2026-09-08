@@ -369,7 +369,8 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
                     "json_extract(e.body,'$.note.status')='open' ORDER BY e.tick,e.id LIMIT ?");
         q.bind(1, subject).bind(2, static_cast<std::int64_t>(p.max_items + 1));
         collect(q, mandatory);
-        need(mandatory.size() <= p.max_items, "memory pressure: too many open tasks");
+        if (mandatory.size() > p.max_items)
+            throw ContextOverflow("memory pressure: too many open tasks");
     }
     auto query = terms(p.query);
     if (!query.empty() && p.strategy != "recent") {

@@ -101,6 +101,32 @@ void conflicting_writer() {
     RoutedRuntime runtime(store, registry); Route route; route.executors = {"race", "unused"};
     auto result = runtime.step("s", route, 1); check(result.status == "conflict" && store.snapshot("s").tick == 1, "competing head overwritten"); store.verify("s");
 }
+void open_task_capacity_fallback() {
+    Temp t; Store store(t.db()); store.create("s", {1, 100, 1000}, 0);
+    auto seed = *store.admit("s", "fixture", 0); Proposal tasks;
+    tasks.notes = {{"first", "Keep first obligation.", "task", "open"}, {"second", "Keep second obligation.", "task", "open"}};
+    store.commit(seed.id, tasks, 0); store.submit("s", "continue", {}, 10);
+    struct Bounded : TestBackend {
+        std::size_t items;
+        int& invoked;
+        Bounded(std::size_t limit, int& calls) : items(limit), invoked(calls) {}
+        std::optional<MemoryPolicy> memory_policy() const override { MemoryPolicy p; p.max_items = items; return p; }
+        Proposal propose(const Present& p) override {
+            ++invoked;
+            check(p.memory_view.at("items").size() == 2, "fallback dropped an obligation");
+            return Proposal{};
+        }
+    };
+    int small_calls = 0, large_calls = 0; Registry registry;
+    registry.add("small", {}, [&] { return std::make_unique<Bounded>(1, small_calls); });
+    registry.add("large", {}, [&] { return std::make_unique<Bounded>(4, large_calls); });
+    RoutedRuntime runtime(store, registry); Route route; route.executors = {"small", "large"};
+    const auto before = store.timeline("s").at("attempts").size();
+    auto result = runtime.step("s", route, 10);
+    check(result.status == "committed" && result.attempts[0]["status"] == "context_overflow", "task capacity prevented fallback");
+    check(small_calls == 0 && large_calls == 1 && store.timeline("s").at("attempts").size() == before + 1, "capacity failure spent inference quota");
+    store.verify("s");
 }
-int main() { try { isolation_and_gates(); fallback_and_limits(); binding_and_late_results(); context_and_factory_fallback(); conflicting_writer(); std::cout << "routing invariants passed\n"; }
+}
+int main() { try { open_task_capacity_fallback(); isolation_and_gates(); fallback_and_limits(); binding_and_late_results(); context_and_factory_fallback(); conflicting_writer(); std::cout << "routing invariants passed\n"; }
 catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }
