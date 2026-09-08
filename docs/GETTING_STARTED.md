@@ -2,7 +2,7 @@
 
 This guide explains how to embed the `cogg.cpp` transition kernel into your own C++ application. 
 
-While `cogg.cpp` provides a built-in `cogg-cli` and a `llama.cpp` backend out of the box, its true power lies in its embeddable API. You can use it to give any AI model (local or API-based) a persistent, crash-resilient lifecycle and its own subjective sense of time.
+While `cogg.cpp` provides a built-in `cogg-cli` and a `llama.cpp` backend out of the box, its true power lies in its embeddable API. You can use it to give any AI model (local or API-based) a persistent, crash-resilient lifecycle and an explicit logical clock of committed transitions.
 
 ## The Core Architecture
 
@@ -20,6 +20,8 @@ To plug your model (or custom logic) into the kernel, inherit from `cogg::Backen
 ```cpp
 #include <cogg/kernel.hpp>
 #include <iostream>
+#include <thread>
+#include <chrono>
 
 class MyAgentBackend : public cogg::Backend {
 public:
@@ -29,20 +31,20 @@ public:
         std::cout << "Agent woke up! Tick: " << present.state.tick << "\n";
         
         // 1. Read the state (memory, inbox event, etc.)
-        if (present.occasion.kind == "user_message") {
+        if (present.occasion.kind == "external") {
             std::cout << "Received: " << present.occasion.payload["text"] << "\n";
         }
 
         // 2. Formulate a proposal (what happens next)
         cogg::Proposal prop;
-        prop.kind = "thought";
-        prop.text = "I am processing the input.";
+        prop.kind = "reflection";
+        // Reflection carries no outward text; speech is a separate transition kind.
         
         // 3. Write to memory (atomic key-value update)
         prop.memory.push_back({"last_thought", "I am processing the input."});
         
         // 4. Request the next autonomous wake-up (Endogenous Time)
-        // e.g., Request to wake up in exactly 5 seconds (5000 ms)
+        // e.g., Request to wake after 5 seconds (subject to admission limits) (5000 ms)
         prop.wake_after_ms = 5000; 
 
         return prop;
@@ -56,6 +58,7 @@ Now, let's wire it up in `main()`.
 
 ```cpp
 int main() {
+    // Run with a fresh my_agent.db. create() intentionally rejects duplicate subjects.
     // 1. Initialize the SQLite Store
     cogg::Store store("my_agent.db");
 
@@ -80,7 +83,11 @@ int main() {
     MyAgentBackend backend;
     cogg::Runtime runtime(store, backend, cogg::wall_now);
 
-    // 6. Step the agent forward
+    // 6. Process the initial created occasion first. The queued message follows.
+    runtime.step("agent_01", cogg::wall_now());
+    std::this_thread::sleep_for(std::chrono::milliseconds(limits.min_wake_ms));
+
+    // Step again to process the external message
     // The Runtime checks quotas, reads the inbox, calls backend.propose(), 
     // and commits the result atomically to SQLite.
     auto snapshot = runtime.step("agent_01", cogg::wall_now());
@@ -90,6 +97,7 @@ int main() {
         std::cout << "Scheduled Wake: " << snapshot->wake_at.value_or(0) << "\n";
     }
 
+    store.verify("agent_01");
     return 0;
 }
 ```
@@ -102,3 +110,9 @@ When `runtime.step()` is called:
 3. **Persistence:** The `Proposal` (including the 5-second sleep request and the memory write) was cryptographically hashed and saved to SQLite in a single transaction.
     
 Because `cogg.cpp` is fail-closed, if someone pulled the server's power cord during `propose()`, the event remains safe in the inbox. When the server reboots, calling `runtime.step()` will seamlessly retry the operation.
+
+The first step handles `created`; the second handles `external`. Minimum spacing
+applies to both. Run this example in a fresh directory; repeating `create()` on
+an existing subject is an error. A reflection has empty `text`; use `speech`
+for outward text. Recovery preserves committed state, while interrupted inference
+may run again.

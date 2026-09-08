@@ -2,11 +2,11 @@
 
 A lightweight, durable C++ runtime for autonomous AI agents with persistent state, deterministic event loops, and bounded autonomous waking.
 
-`cogg.cpp` provides a low-level engine where an LLM's subjective time and memory are cryptographically coupled to a host SQLite database. It is designed as a foundational transition kernel that gives local models a continuous, crash-resilient existence tied to real host resources.
+`cogg.cpp` provides a low-level engine where an LLM's subjective time and memory are cryptographically coupled to a host SQLite database. It is designed as a foundational transition kernel that gives local models a continuous, crash-resilient existence tied to real host resources. This implements logical commit coordinates, not evidence of a human-like subjective experience.
 
 This project originated as the runtime component for the **Physalia Gyre** research program, but it is built as an open, embeddable foundation for any developer creating durable AI systems.
 
-If the host process is interrupted mid-generation, `cogg.cpp` can resume the exact state, replay the inbox, load the KV cache from disk, and allow the model to safely try again, leaving a verifiable cryptographic trail.
+If the host process is interrupted mid-generation, `cogg.cpp` can recover the last committed state, replay pending inbox events, restore a compatible KV cache or reconstruct the context, and allow the model to try again, leaving a verifiable cryptographic trail.
 
 ## Core Concepts
 
@@ -22,7 +22,7 @@ If the host process is interrupted mid-generation, `cogg.cpp` can resume the exa
 What `cogg.cpp` adds architecturally on top of this inference engine is the **durable transition kernel**:
 * **State & Time:** While `llama.cpp` computes the next tokens, `cogg.cpp` manages the agent's lifecycle. It decides *when* the model is allowed to run, tracking its subjective time, and enforcing autonomous scheduling and quotas.
 * **Persistence:** `cogg.cpp` wraps the inference in SQLite transactions. It saves the model's memory, inbox events, and wake decisions to a cryptographically hashed commit chain.
-* **KV Cache Lifecycle:** `cogg.cpp` manages the persistence of `llama.cpp`'s KV cache to disk, tying specific cache blobs to exact commit hashes. This allows the host process to be completely killed and later perfectly restored to the exact context state without recalculating prompts.
+* **KV Cache Lifecycle:** `cogg.cpp` manages the persistence of `llama.cpp`'s KV cache to disk, tying specific cache blobs to exact commit hashes. A restarted process restores a compatible cache and reuses the matching canonical prefix. Missing, stale or incompatible caches trigger reconstruction from committed state. Interrupted generation may be repeated and may produce different text; checkpoint publication is separate from the SQLite commit.
 
 ## Status
 
@@ -31,9 +31,15 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 - [x] **Phase 0:** Durable kernel contract
 - [x] **Phase 1:** Local model build and inference (libllama)
 - [x] **Phase 2:** Durable checkpoint usage (KV cache)
-- [x] **Phase 3:** Endogenous time and autonomous scheduling
+- [x] **Phase 3 mechanisms:** Explicit commit time and bounded model-requested scheduling
+- [ ] **Phase 3 validation:** Real 48-hour observation and state-dependent waking assessment; see [protocol](docs/PHASE-3.md)
 - [ ] **Phase 4:** Memory retrieval and compaction
-- [ ] **Phase 5:** Cryptographic subject signatures
+- [ ] **Phase 5:** Multiple substrates and routing
+- [ ] **Phase 6:** Cognitive integration and disagreement
+- [ ] **Phase 7:** Crystal / self-model
+- [ ] **Phase 8:** Multimodal perception
+
+Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-roadmap).
 
 ## Build Instructions
 
