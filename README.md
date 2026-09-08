@@ -15,6 +15,7 @@ If the host process is interrupted mid-generation, `cogg.cpp` can recover the la
 * **Crash-Resilient Inference:** Powered by an embedded `llama.cpp` backend. KV caches are persisted to disk and tied to specific commit hashes, enabling seamless warm/cold process restoration after a crash or eviction.
 * **Bounded Working Memory:** Typed deposits remain in durable history while the model receives a selected context. Open tasks, source-linked summaries and version-aware retrieval are checked by the kernel.
 * **Explicit Non-participation:** An executor can abstain without changing subject state. The host can supply source-linked evidence for another attempt at the same request.
+* **Optional Self-State:** A host policy preserves an application-defined profile and explicit commitments across model replacement, checking authorization before they change.
 * **Idempotent Inbox:** External events and messages queue safely and survive process exits.
 
 ## Relationship with llama.cpp
@@ -28,7 +29,7 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 ## Status
 
-**Current Version: 0.7.0 (Experimental Phase 6)**
+**Current Version: 0.8.0 (Experimental Phase 7)**
 
 - [x] **Phase 0:** Durable kernel contract
 - [x] **Phase 1:** Local model build and inference (libllama)
@@ -39,7 +40,8 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 - [x] **Phase 5:** Heterogeneous executors, isolated sessions, bounded routing and admission-bound emissions
 - [x] **Phase 6 mechanisms:** Typed abstention and bounded provenance inputs; [composition boundary](docs/PHASE-6.md)
 - [ ] **Phase 6 model quality:** Reliable evidence-aware participation across models; see [validation](docs/phase6-validation-20260908.json)
-- [ ] **Phase 7:** Crystal / self-model
+- [x] **Phase 7 mechanisms:** Optional durable self-state and guarded commitments; [contract and model-switch example](docs/PHASE-7.md)
+- [ ] **Full Crystal integration:** Semantic self-model, drives and cognitive evaluation remain research work
 - [ ] **Phase 8:** Multimodal perception
 
 Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-phases).
@@ -87,6 +89,7 @@ The project is designed to be embeddable. The core C++ API (see `include/cogg/ke
 * `cogg::Backend`: The abstract interface for model inference, with native libllama and optional HTTP implementations.
 * `cogg::Runtime`: Steps the subject forward with one backend.
 * `cogg::Registry` and `cogg::RoutedRuntime`: Own executor sessions and apply explicit routes while retaining one subject history.
+* Optional `cogg::SelfRuntime` (`-DCOGG_SELF=ON`): Applies host-issued self-state permissions before committing a model proposal; uses the existing database and memory.
 
 For deeper technical dives and research notes, see the documentation in the `docs/` folder.
 

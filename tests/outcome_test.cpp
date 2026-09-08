@@ -121,6 +121,24 @@ void races_and_capacity() {
     auto good=*s.admit("s","other",2,{}, {},nullptr,context);s.abstain(good.id,{"uncertain",""});s.verify("s");
     mutate(t.db(),"DELETE FROM abstentions");rejects([&]{s.verify("s");});
 }
+void due_wake_inputs() {
+    Temp t; Store s(t.db()); s.create("s",{1,100,1000},0);
+    json context={{"head",s.snapshot("s").head},{"occasion",nullptr},{"inputs",json::array({make_input("observation","fixture","wake context")})}};
+    rejects([&]{s.admit("s","reader",0,{}, {},nullptr,context);});
+    check(s.timeline("s")["attempts"].empty(),"null context matched created event");
+    auto first=*s.admit("s","reader",0); Proposal sleep; sleep.wake_after_ms=10;
+    auto state=s.commit(first.id,sleep,0); context["head"]=state.head;
+    rejects([&]{s.admit("s","reader",9,{}, {},nullptr,context);});
+    const auto count=s.timeline("s")["attempts"].size();
+    rejects([&]{s.admit("s","small",10,{},[](const Present&){return false;},nullptr,context);});
+    check(s.timeline("s")["attempts"].size()==count && s.schedule("s",10)["occasion"]["id"].is_null(),"overflow materialized a wake");
+    auto wake=*s.admit("s","reader",10,{}, {},nullptr,context);
+    check(wake.present.inputs==context["inputs"] && wake.present.occasion.kind=="scheduled","due wake lost inputs");
+    s.fail(wake.id,"simulated restart");
+    rejects([&]{s.admit("s","replacement",11,{}, {},nullptr,context);});
+    context["occasion"]=wake.present.occasion.id;
+    auto retry=*s.admit("s","replacement",11,{}, {},nullptr,context); s.commit(retry.id,Proposal{},11); s.verify("s");
 }
-int main(){try{shapes();persistence_and_resume();all_abstentions_stop_and_count();routed_late_abstention();races_and_capacity();std::cout<<"outcome and provenance invariants passed\n";}
+}
+int main(){try{shapes();persistence_and_resume();all_abstentions_stop_and_count();routed_late_abstention();races_and_capacity();due_wake_inputs();std::cout<<"outcome and provenance invariants passed\n";}
 catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

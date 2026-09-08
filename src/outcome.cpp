@@ -56,7 +56,7 @@ void validate_inputs(const json& inputs) {
 void validate_admission_context(const json& c) {
     if (c.is_null()) return;
     need(c.is_object() && c.size() == 3 && c.contains("head") && c.contains("occasion") &&
-         digest(c.at("head")) && digest(c.at("occasion")) && c.contains("inputs"), "invalid admission context");
+         digest(c.at("head")) && (digest(c.at("occasion")) || c.at("occasion").is_null()) && c.contains("inputs"), "invalid admission context");
     validate_inputs(c.at("inputs"));
 }
 } // namespace cogg

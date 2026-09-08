@@ -75,6 +75,7 @@ json outcome_json(const Outcome&);
 json make_input(const std::string& kind, const std::string& producer, const json& content,
                 const std::vector<std::string>& sources = {});
 void validate_inputs(const json&);
+// occasion:null binds only the not-yet-materialized due wake at head; it is not a wildcard.
 void validate_admission_context(const json&); // null or {head, occasion, inputs}
 
 struct Attempt {

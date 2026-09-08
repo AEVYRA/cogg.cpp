@@ -4,7 +4,8 @@
 > See [Phase 6](docs/PHASE-6.md) for the explicit scope revision and current API.
 > Semantic integration/claim selection belongs to the host application. The Phase 3
 > 48-hour observation and model-quality gates remain open. Crystal, signatures and
-> real perception remain planned.
+> real perception remain planned. Phase 7 now provides an optional host self-state
+> policy and guarded commitments; see [its bounded scope](docs/PHASE-7.md).
 
 # cogg.cpp
 ## Persistent Cognitive Runtime for Continuous Synthetic Subjects
@@ -2192,7 +2193,12 @@ See [the implemented contract](docs/PHASE-6.md).
 
 ## Phase 7 — Crystal/self-model
 
-Integrate Aevyra structures.
+Scope revised 2026-09-08: v0.8.0 implements an optional host self-state policy over
+ordinary memory. An application-defined profile and explicit task commitments
+survive process/executor replacement; mutations require exact, admission-bound
+host grants. No separate database, semantic self interpreter, or full Crystal
+integration is introduced. Full integration of Aevyra structures remains future
+work. See [the contract and example](docs/PHASE-7.md).
 
 ## Phase 8 — Perception
 
