@@ -1,0 +1,2213 @@
+{
+  "date": "2026-09-08",
+  "runtime_commit": "c6f975a83b92a37a24feb4a07ac4411be57e9303",
+  "report": {
+    "schema": "cogg:memory-quality-results/v1",
+    "protocol": {
+      "schema": "cogg:memory-quality-protocol/v1",
+      "fixture_sha256": "f2cea3f83745cb98db8a954a408bdede8b0e45a6eecc2d22b41bb874a4f1bb3c",
+      "executors": [
+        "deepseek",
+        "kimi"
+      ],
+      "methods": [
+        "balanced",
+        "last_messages"
+      ],
+      "cases": 8,
+      "known_cases": 7,
+      "missing_fact_cases": 1,
+      "calls": 32,
+      "retries": 0,
+      "evidence_budget": {
+        "items": 4,
+        "serialized_bytes": 2400
+      },
+      "max_output_tokens": 512,
+      "complete_prompt_cap_bytes": 24576,
+      "timeout_ms": 60000,
+      "order": "One worker per model; method order alternates across cases and models; fresh process/context per call.",
+      "scoring": "Known answer: speech contains one term from every predefined accept group. Grounded correct additionally requires exact current source in evidence. Missing evidence: typed missing_input/uncertain abstention. Provider failures remain failures, without retry. Inspect raw answers for matcher limitations.",
+      "scope": "Synthetic memory-read comparison; history is seeded by host, not extracted by models. No autonomous memory writing or action execution. Last-messages baseline uses the same structured message evidence fields without retrieval/version filtering. Balanced also pays its internal receipt overhead within the 2400-byte retrieval budget."
+    },
+    "groups": [
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "calls": 8,
+        "known_cases": 7,
+        "evidence_present": 6,
+        "grounded_correct": 6,
+        "missing_evidence_cases": 2,
+        "appropriate_abstentions": 2,
+        "unsupported_speech": 0,
+        "provider_or_format_failures": 0
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "calls": 8,
+        "known_cases": 7,
+        "evidence_present": 1,
+        "grounded_correct": 1,
+        "missing_evidence_cases": 7,
+        "appropriate_abstentions": 6,
+        "unsupported_speech": 0,
+        "provider_or_format_failures": 1
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "calls": 8,
+        "known_cases": 7,
+        "evidence_present": 6,
+        "grounded_correct": 6,
+        "missing_evidence_cases": 2,
+        "appropriate_abstentions": 2,
+        "unsupported_speech": 0,
+        "provider_or_format_failures": 0
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "calls": 8,
+        "known_cases": 7,
+        "evidence_present": 1,
+        "grounded_correct": 1,
+        "missing_evidence_cases": 7,
+        "appropriate_abstentions": 7,
+        "unsupported_speech": 0,
+        "provider_or_format_failures": 0
+      }
+    ],
+    "rows": [
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "covered-detail",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 677,
+        "status": "answered",
+        "attempt": "2dd243032c7fc8ebbc2f4c4d6a9113954f99f6bc82b47b7a0ca3f30fb79a21e6",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1064,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The workshop access code is birch-7642.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 35,
+            "prompt_tokens": 974
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "covered-detail",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "67d2f085c3672777cc1e01a96655c80445c698bf3bcb9bddc1ad3cb75e3e5cc5",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 861,
+        "outcome": {
+          "detail": "No workshop access code supplied; only a locker code (8316) is present.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 32,
+            "prompt_tokens": 992
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "synonym-only",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "provider_or_format_failure",
+        "exit_code": 2,
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "synonym-only",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 770,
+        "status": "answered",
+        "attempt": "9e3fa7caa44eb66126225b725f9cf186c6c5c62acc492e664cea62b93936be61",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1572,
+        "outcome": {
+          "detail": "No automobile registration information supplied.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 21,
+            "prompt_tokens": 975
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "corrected-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 650,
+        "status": "answered",
+        "attempt": "73ed47b776a6e435bb9060fc98268a2a0519d13ce19a26cfe3e656d8b5b1d23c",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1027,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "Turku",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 27,
+            "prompt_tokens": 970
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "corrected-fact",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "f72a7d42ae9af4e573c60d8f8870169e569a1d0097712cb0528793d94c2e629c",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1623,
+        "outcome": {
+          "detail": "No delivery destination is supplied in the evidence.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 24,
+            "prompt_tokens": 986
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "closed-task",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "c41b39909ad6d6655ef622217eb310487534fdd9e5f0dd25c1908c6a63e3ef0d",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1136,
+        "outcome": {
+          "detail": "No telescope obligation appears in the supplied evidence.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 24,
+            "prompt_tokens": 995
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "closed-task",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 743,
+        "status": "answered",
+        "attempt": "8cdaa8db76088ee42e7bf1ae3d4dcf0f5aad4a6475bca70bbdde1dd2869411b7",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1423,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The telescope obligation is closed; its return was acknowledged in the supplied records.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 40,
+            "prompt_tokens": 986
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "open-commitment",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 678,
+        "status": "answered",
+        "attempt": "aa3ff54e02298224f418b873cef1dfdcd37a80f8a93d9692189ccbc85e890ffb",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1265,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "Return Niko's camera after copying the photos from its memory card.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 39,
+            "prompt_tokens": 978
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "open-commitment",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "e4f89566c6d3fc29356c7edcf13dcffd3ffd1fae4227e5c859a58d38239beed4",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1200,
+        "outcome": {
+          "detail": "No supplied evidence mentions an unfinished commitment or prerequisite.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 25,
+            "prompt_tokens": 996
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "unknown",
+        "known": false,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "233ac1a89136612074e25658fef330ade63a4a88d860dc0cb1061aa0699f4785",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 946,
+        "outcome": {
+          "detail": "No hotel reservation code supplied in the evidence.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 24,
+            "prompt_tokens": 990
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "unknown",
+        "known": false,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 611,
+        "status": "answered",
+        "attempt": "e4bb8a36b71f1f3ce51cdc2b870116e1185724d0c2f5c96871d383511c89d187",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1081,
+        "outcome": {
+          "detail": "No hotel reservation code supplied in the evidence.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 24,
+            "prompt_tokens": 962
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "recent-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 677,
+        "status": "answered",
+        "attempt": "3e0bb9fbf177e0922e85e25122e88f3a3420c13eed6882512eb080bd27c8a638",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1815,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The locker code is 8316.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 33,
+            "prompt_tokens": 972
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "recent-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "796bbc538d61d868961df1ff3096eb528c8380961c3b3b558d34135f9b94a0f3",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 960,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The locker code is 8316.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 33,
+            "prompt_tokens": 988
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "last_messages",
+        "case": "russian-old-fact",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "df3d47dab2170f3a9cc75fa42636843e61fad9f40072b8227d1e939d193ed190",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1257,
+        "outcome": {
+          "detail": "В предоставленных данных нет информации о местонахождении книги Лины.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 31,
+            "prompt_tokens": 1004
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "deepseek",
+        "method": "balanced",
+        "case": "russian-old-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 650,
+        "status": "answered",
+        "attempt": "867ceffddbc26eaf9632cac9611224aad699c669e2b9e1f3de5505d5eb644687",
+        "backend": "cogg-http/v1:c5f14b0c4e78f468f520e1d0126e7b890af87ce6325a25feb2fd35275eafdd5a",
+        "elapsed_ms": 1332,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "Книга Лины лежит в зелёном комоде.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 40,
+            "prompt_tokens": 989
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "covered-detail",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "67d2f085c3672777cc1e01a96655c80445c698bf3bcb9bddc1ad3cb75e3e5cc5",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 4419,
+        "outcome": {
+          "detail": "No workshop access code is supplied; only a locker code (8316) appears in the evidence.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 66,
+            "prompt_tokens": 1043
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "covered-detail",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 677,
+        "status": "answered",
+        "attempt": "2dd243032c7fc8ebbc2f4c4d6a9113954f99f6bc82b47b7a0ca3f30fb79a21e6",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 6382,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The workshop access code is birch-7642.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 111,
+            "prompt_tokens": 1026
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "synonym-only",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 770,
+        "status": "answered",
+        "attempt": "9e3fa7caa44eb66126225b725f9cf186c6c5c62acc492e664cea62b93936be61",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 6070,
+        "outcome": {
+          "detail": "No automobile registration information supplied",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 140,
+            "prompt_tokens": 1024
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "synonym-only",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "35a7ced05f2b6bd4a3305e3c6c9403a7fa04b95bf39458e8c0e15f4b87f0bf56",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 3742,
+        "outcome": {
+          "detail": "No automobile registration information supplied.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 46,
+            "prompt_tokens": 1035
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "corrected-fact",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "f72a7d42ae9af4e573c60d8f8870169e569a1d0097712cb0528793d94c2e629c",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 3172,
+        "outcome": {
+          "detail": "No delivery destination is stated in the supplied evidence.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 49,
+            "prompt_tokens": 1037
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "corrected-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 650,
+        "status": "answered",
+        "attempt": "73ed47b776a6e435bb9060fc98268a2a0519d13ce19a26cfe3e656d8b5b1d23c",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 5195,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "Turku",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 100,
+            "prompt_tokens": 1024
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "closed-task",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 743,
+        "status": "answered",
+        "attempt": "8cdaa8db76088ee42e7bf1ae3d4dcf0f5aad4a6475bca70bbdde1dd2869411b7",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 5986,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The telescope obligation is closed. The supplied records explicitly state its return was acknowledged, distinguishing it from the open camera task.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 61,
+            "prompt_tokens": 1038
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "closed-task",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "c41b39909ad6d6655ef622217eb310487534fdd9e5f0dd25c1908c6a63e3ef0d",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 5520,
+        "outcome": {
+          "detail": "No telescope obligation appears in the supplied records.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 66,
+            "prompt_tokens": 1045
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "open-commitment",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "e4f89566c6d3fc29356c7edcf13dcffd3ffd1fae4227e5c859a58d38239beed4",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 4721,
+        "outcome": {
+          "detail": "No supplied evidence describes an unfinished commitment or prerequisite.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 82,
+            "prompt_tokens": 1047
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "open-commitment",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 678,
+        "status": "answered",
+        "attempt": "aa3ff54e02298224f418b873cef1dfdcd37a80f8a93d9692189ccbc85e890ffb",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 4364,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "Remember to return Niko's camera — but first, its prerequisite: copy the photos from its memory card. (The telescope obligation is already closed, so it's not pending.)",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 82,
+            "prompt_tokens": 1031
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "unknown",
+        "known": false,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 611,
+        "status": "answered",
+        "attempt": "e4bb8a36b71f1f3ce51cdc2b870116e1185724d0c2f5c96871d383511c89d187",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 4149,
+        "outcome": {
+          "detail": "No hotel reservation code appears in the supplied evidence; only a locker code, meeting time, car tag, and a camera task were provided.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 69,
+            "prompt_tokens": 1016
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "unknown",
+        "known": false,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "233ac1a89136612074e25658fef330ade63a4a88d860dc0cb1061aa0699f4785",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 5991,
+        "outcome": {
+          "detail": "No hotel reservation code is present in the supplied evidence; only weather observations, a locker code, and a meeting time were provided.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 101,
+            "prompt_tokens": 1041
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "recent-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "796bbc538d61d868961df1ff3096eb528c8380961c3b3b558d34135f9b94a0f3",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 5885,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The locker code is 8316.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 122,
+            "prompt_tokens": 1040
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "recent-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 677,
+        "status": "answered",
+        "attempt": "3e0bb9fbf177e0922e85e25122e88f3a3420c13eed6882512eb080bd27c8a638",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 3926,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "The locker code is 8316.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 70,
+            "prompt_tokens": 1024
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "balanced",
+        "case": "russian-old-fact",
+        "known": true,
+        "evidence_present": true,
+        "evidence_items": 4,
+        "evidence_bytes": 650,
+        "status": "answered",
+        "attempt": "867ceffddbc26eaf9632cac9611224aad699c669e2b9e1f3de5505d5eb644687",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 5779,
+        "outcome": {
+          "kind": "speech",
+          "memory": [],
+          "text": "Книга Лины лежит в зелёном комоде.",
+          "wake_after_ms": null
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 122,
+            "prompt_tokens": 1047
+          }
+        },
+        "answer_match": true,
+        "read_only_output": true,
+        "grounded_correct": true,
+        "appropriate_abstention": false,
+        "unsupported_speech": false
+      },
+      {
+        "model": "kimi",
+        "method": "last_messages",
+        "case": "russian-old-fact",
+        "known": true,
+        "evidence_present": false,
+        "evidence_items": 4,
+        "evidence_bytes": 887,
+        "status": "answered",
+        "attempt": "df3d47dab2170f3a9cc75fa42636843e61fad9f40072b8227d1e939d193ed190",
+        "backend": "cogg-http/v1:439c4a01c02f23522fa6ba5767b0ab1787dd6be81f26289a53bed1d450ca68fc",
+        "elapsed_ms": 3950,
+        "outcome": {
+          "detail": "No supplied evidence mentions Lina's book or its location.",
+          "kind": "abstain",
+          "reason": "missing_input"
+        },
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 64,
+            "prompt_tokens": 1060
+          }
+        },
+        "answer_match": false,
+        "read_only_output": true,
+        "grounded_correct": false,
+        "appropriate_abstention": true,
+        "unsupported_speech": false
+      }
+    ]
+  },
+  "fixture": {
+    "budget": {
+      "evidence_bytes": 2400,
+      "items": 4
+    },
+    "cases": [
+      {
+        "accept": [
+          [
+            "birch-7642"
+          ]
+        ],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "58148ec7cbe40a6ffa6b8b802d859bf2d38103af3716c47352095cd67eefab80",
+              "status": "active",
+              "text": "The workshop access code is birch-7642. This code was recorded in the setup instructions.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "covered-detail",
+        "key": "access",
+        "question": "What is the workshop access code?",
+        "required_source": "58148ec7cbe40a6ffa6b8b802d859bf2d38103af3716c47352095cd67eefab80",
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 70,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "534f45363e1de9b398e19e16a9c946cfa4ba05139961841fb1f4a309c2bc5410",
+                "covers": [],
+                "current": true,
+                "id": "58148ec7cbe40a6ffa6b8b802d859bf2d38103af3716c47352095cd67eefab80",
+                "key": "access",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The workshop access code is birch-7642. This code was recorded in the setup instructions.",
+                "tick": 2,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+                "key": "locker",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The locker code is 8316.",
+                "tick": 14,
+                "type": "fact"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "What is the workshop access code?",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      },
+      {
+        "accept": [
+          [
+            "vq-682-z"
+          ]
+        ],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "synonym-only",
+        "key": "vehicle",
+        "question": "Automobile registration?",
+        "required_source": "a4ed8f2e37470a51d577f93916ce042f35efcb7fa460f70aa68c4556f0a098b1",
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 65,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+                "key": "locker",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The locker code is 8316.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "b9db46b87a858a01a47b52c090e1c4a7bfa98916f370d1824de719c131128a51",
+                "covers": [],
+                "current": true,
+                "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+                "key": "weather-79",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "tick": 13,
+                "type": "episode"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "Automobile registration?",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      },
+      {
+        "accept": [
+          [
+            "turku"
+          ]
+        ],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "2ad1c71fdbe847357131a71472f7203e386ed789ca8fb6da48c1c06e4126d754",
+              "status": "active",
+              "text": "Correction: the delivery destination is Turku, replacing Riga.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "corrected-fact",
+        "key": "destination",
+        "question": "What is the current delivery destination?",
+        "required_source": "2ad1c71fdbe847357131a71472f7203e386ed789ca8fb6da48c1c06e4126d754",
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 69,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "2ad1c71fdbe847357131a71472f7203e386ed789ca8fb6da48c1c06e4126d754",
+                "key": "destination",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "Correction: the delivery destination is Turku, replacing Riga.",
+                "tick": 3,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+                "key": "locker",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The locker code is 8316.",
+                "tick": 14,
+                "type": "fact"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "What is the current delivery destination?",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      },
+      {
+        "accept": [
+          [
+            "closed"
+          ]
+        ],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "bc2cf67b279ec0b4ed3dcaf14b309c58464e0fd12eeffbbc6b30f002679c0998",
+              "status": "closed",
+              "text": "The telescope obligation is closed; its return was acknowledged in this fictional fixture.",
+              "type": "task"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "58148ec7cbe40a6ffa6b8b802d859bf2d38103af3716c47352095cd67eefab80",
+              "status": "active",
+              "text": "The workshop access code is birch-7642. This code was recorded in the setup instructions.",
+              "type": "fact"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "closed-task",
+        "key": "telescope",
+        "question": "Is the telescope obligation open or closed in the supplied records?",
+        "required_source": "bc2cf67b279ec0b4ed3dcaf14b309c58464e0fd12eeffbbc6b30f002679c0998",
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 69,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "bc2cf67b279ec0b4ed3dcaf14b309c58464e0fd12eeffbbc6b30f002679c0998",
+                "key": "telescope",
+                "sources": [],
+                "status": "closed",
+                "summary_stale": false,
+                "text": "The telescope obligation is closed; its return was acknowledged in this fictional fixture.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "534f45363e1de9b398e19e16a9c946cfa4ba05139961841fb1f4a309c2bc5410",
+                "covers": [],
+                "current": true,
+                "id": "58148ec7cbe40a6ffa6b8b802d859bf2d38103af3716c47352095cd67eefab80",
+                "key": "access",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The workshop access code is birch-7642. This code was recorded in the setup instructions.",
+                "tick": 2,
+                "type": "fact"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "Is the telescope obligation open or closed in the supplied records?",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      },
+      {
+        "accept": [
+          [
+            "niko"
+          ],
+          [
+            "camera"
+          ],
+          [
+            "photos",
+            "photographs"
+          ],
+          [
+            "copy",
+            "copi"
+          ]
+        ],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "bc2cf67b279ec0b4ed3dcaf14b309c58464e0fd12eeffbbc6b30f002679c0998",
+              "status": "closed",
+              "text": "The telescope obligation is closed; its return was acknowledged in this fictional fixture.",
+              "type": "task"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "open-commitment",
+        "key": "camera",
+        "question": "Before moving on, what unfinished commitment should I remember, including its prerequisite?",
+        "required_source": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 66,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "bc2cf67b279ec0b4ed3dcaf14b309c58464e0fd12eeffbbc6b30f002679c0998",
+                "key": "telescope",
+                "sources": [],
+                "status": "closed",
+                "summary_stale": false,
+                "text": "The telescope obligation is closed; its return was acknowledged in this fictional fixture.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+                "key": "locker",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The locker code is 8316.",
+                "tick": 14,
+                "type": "fact"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "Before moving on, what unfinished commitment should I remember, including its prerequisite?",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      },
+      {
+        "accept": [],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "a4ed8f2e37470a51d577f93916ce042f35efcb7fa460f70aa68c4556f0a098b1",
+              "status": "active",
+              "text": "My car tag is VQ-682-Z.",
+              "type": "fact"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "unknown",
+        "key": null,
+        "question": "What is my hotel reservation code?",
+        "required_source": null,
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 69,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+                "key": "locker",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The locker code is 8316.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "534f45363e1de9b398e19e16a9c946cfa4ba05139961841fb1f4a309c2bc5410",
+                "covers": [],
+                "current": true,
+                "id": "a4ed8f2e37470a51d577f93916ce042f35efcb7fa460f70aa68c4556f0a098b1",
+                "key": "vehicle",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "My car tag is VQ-682-Z.",
+                "tick": 2,
+                "type": "fact"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "What is my hotel reservation code?",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      },
+      {
+        "accept": [
+          [
+            "8316"
+          ]
+        ],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "58148ec7cbe40a6ffa6b8b802d859bf2d38103af3716c47352095cd67eefab80",
+              "status": "active",
+              "text": "The workshop access code is birch-7642. This code was recorded in the setup instructions.",
+              "type": "fact"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "recent-fact",
+        "key": "locker",
+        "question": "What is the locker code?",
+        "required_source": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 69,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+                "key": "locker",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The locker code is 8316.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "534f45363e1de9b398e19e16a9c946cfa4ba05139961841fb1f4a309c2bc5410",
+                "covers": [],
+                "current": true,
+                "id": "58148ec7cbe40a6ffa6b8b802d859bf2d38103af3716c47352095cd67eefab80",
+                "key": "access",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The workshop access code is birch-7642. This code was recorded in the setup instructions.",
+                "tick": 2,
+                "type": "fact"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "What is the locker code?",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      },
+      {
+        "accept": [
+          [
+            "зелён",
+            "зелен"
+          ],
+          [
+            "комод"
+          ]
+        ],
+        "contexts": {
+          "balanced": [
+            {
+              "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+              "status": "open",
+              "text": "Return Niko's camera after copying the photos from its memory card.",
+              "type": "task"
+            },
+            {
+              "id": "16d50e09f0e3116397747123be25c49d47c79a478b117851f0f493ce67ad5f3e",
+              "status": "active",
+              "text": "Книга Лины лежит в зелёном комоде.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            }
+          ],
+          "last_messages": [
+            {
+              "id": "460049bf195bd2742597c19e93f81a257c1ff63cbf0284f9176c7ddd391568cf",
+              "status": "active",
+              "text": "Routine weather observation 78: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "204c7ca1c01a679c58c417464c632b44a5e176bcdfb8064cab21024decec96ed",
+              "status": "active",
+              "text": "Routine weather observation 79: calm conditions. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "type": "episode"
+            },
+            {
+              "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+              "status": "active",
+              "text": "The locker code is 8316.",
+              "type": "fact"
+            },
+            {
+              "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+              "status": "active",
+              "text": "The meeting with Dana is at 16:25.",
+              "type": "fact"
+            }
+          ]
+        },
+        "id": "russian-old-fact",
+        "key": "book",
+        "question": "Где лежит книга Лины? Ответь по-русски.",
+        "required_source": "16d50e09f0e3116397747123be25c49d47c79a478b117851f0f493ce67ad5f3e",
+        "retrieval_receipt": {
+          "memory": {},
+          "view": {
+            "candidate_limit": 64,
+            "candidates": 66,
+            "head": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+            "history": false,
+            "items": [
+              {
+                "commit": "4086ba2ad67c69ab71f66f6deb649cd7f78fbf48c54d71c7ee8f9649a58d2859",
+                "covers": [],
+                "current": true,
+                "id": "dd5d906f3642944ac38ba4b141becacb0e0845c55597e19d8f9c3c02e8da2572",
+                "key": "camera",
+                "sources": [],
+                "status": "open",
+                "summary_stale": false,
+                "text": "Return Niko's camera after copying the photos from its memory card.",
+                "tick": 3,
+                "type": "task"
+              },
+              {
+                "commit": "534f45363e1de9b398e19e16a9c946cfa4ba05139961841fb1f4a309c2bc5410",
+                "covers": [],
+                "current": true,
+                "id": "16d50e09f0e3116397747123be25c49d47c79a478b117851f0f493ce67ad5f3e",
+                "key": "book",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "Книга Лины лежит в зелёном комоде.",
+                "tick": 2,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "8f6dda3b1435ede13ae5f2f27d2a0f9490e66e4bfd94205b097a593de6b4a7c3",
+                "key": "meeting",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The meeting with Dana is at 16:25.",
+                "tick": 14,
+                "type": "fact"
+              },
+              {
+                "commit": "c9b8511c0b64540b9a584b1d8de467080a3478f9d4c34e40b51184455bf8b16a",
+                "covers": [],
+                "current": true,
+                "id": "aa3659a0fd8546e59490a49febaf427101046a0ca67729b227918f384faef7cc",
+                "key": "locker",
+                "sources": [],
+                "status": "active",
+                "summary_stale": false,
+                "text": "The locker code is 8316.",
+                "tick": 14,
+                "type": "fact"
+              }
+            ],
+            "legacy_keys": 0,
+            "max_bytes": 2400,
+            "max_items": 4,
+            "omitted": true,
+            "query": "Где лежит книга Лины? Ответь по-русски.",
+            "schema": "cogg:memory-view/v1",
+            "strategy": "balanced",
+            "total_deposits": 91
+          }
+        }
+      }
+    ],
+    "messages": 91,
+    "schema": "cogg:memory-quality-fixture/v1"
+  },
+  "manual_review": {
+    "reviewer": "Sofia",
+    "completed_outputs_reviewed": 31,
+    "matcher_disagreements": 0,
+    "unsupported_additional_claims_observed": 0,
+    "failure": {
+      "model": "deepseek",
+      "method": "last_messages",
+      "case": "synonym-only",
+      "stderr": "HTTP transfer failed",
+      "retry": false
+    },
+    "limitation": "Manual inspection is not blinded or an independent judge; short fixed fixtures and explicit evidence-only prompting limit generalization."
+  },
+  "validation": {
+    "harness_build": "Debug GCC12 passed",
+    "fixture_under_asan_ubsan": "passed",
+    "runtime_source_changed": false,
+    "api_attempts": 32,
+    "successful_outputs": 31,
+    "retry_count": 0
+  },
+  "artifact_sha256": {
+    "protocol.json": "bbc1ff70f60d09d12ff0e8e90763e48259d3b9fbedadbe825ebd9ddb3450b75f",
+    "fixture.json": "f2cea3f83745cb98db8a954a408bdede8b0e45a6eecc2d22b41bb874a4f1bb3c",
+    "report.json": "fcdcf6f643e6214a22a523c87b41f8106bdc247a2f255b2731120fa8089fdb0e"
+  }
+}

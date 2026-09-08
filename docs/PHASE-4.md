@@ -162,6 +162,12 @@ or a head-to-head deployment test of Letta/Mastra/Hindsight. Timings include ful
 verification and were collected with other model tests running; they are not
 latency claims. The quality hypothesis remains open for larger naturalistic benchmarks.
 
+A subsequent [two-model read-quality experiment](MEMORY-QUALITY-2026-09-08.md)
+compares grounded answers from balanced retrieval and the last four messages at
+equal evidence caps. Both DeepSeek and Kimi answered 6/7 known-fact cases with
+balanced retrieval versus 1/7 with the last messages; synonym-only retrieval still
+failed. The small seeded fixture does not evaluate autonomous memory formation.
+
 Tests cover old facts beyond the model window, protected open tasks, corrected
 versions, source expansion after summary, Unicode, foreign source rejection,
 recorded context, explicit capacity failure, missing-index reconstruction,
