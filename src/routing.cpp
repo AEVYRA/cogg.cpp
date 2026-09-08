@@ -92,6 +92,7 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
          route.timeout_ms > 0 && route.timeout_ms <= 3600000 && route.attempt_timeout_ms > 0 &&
          route.attempt_timeout_ms <= route.timeout_ms && !route.executors.empty() && route.executors.size() <= 8,
          "invalid route limits");
+    validate_admission_context(route.context);
     std::set<std::string> seen;
     for (const auto& id : route.executors)
         need(registry_.entries_.count(id) && seen.insert(id).second, "unknown or duplicate route executor");
@@ -125,8 +126,9 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
         std::optional<Attempt> a;
         try {
             a = store_.admit(subject, backend.name(), wall(), backend.memory_policy(),
-                [&](const Present& p) { return backend.context_fits(p); }, session.execution);
-        } catch (const ContextOverflow&) {
+                [&](const Present& p) { return backend.context_fits(p); }, session.execution, route.context);
+        } catch (const Conflict&) { result.status = "conflict"; return result; }
+        catch (const ContextOverflow&) {
             result.attempts.push_back({{"executor", id}, {"status", "context_overflow"}}); continue;
         }
         if (!a) { result.status = "waiting"; return result; }
@@ -138,13 +140,13 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
         auto settled = [&](const std::string& status) {
             store_.fail(a->id, status); result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", status}});
         };
-        Proposal proposal;
+        Outcome outcome;
         std::string failure;
         try {
             if (limit <= 0) throw BackendFailure("timeout", FailureKind::timeout);
-            proposal = backend.propose_attempt(*a, limit, cancelled);
+            outcome = backend.respond_attempt(*a, limit, cancelled);
             // Reject invalid model output before entering the commit transaction.
-            (void)proposal_json(proposal);
+            (void)outcome_json(outcome);
         } catch (const BackendFailure& error) {
             switch (error.kind) {
                 case FailureKind::transport: failure = "transport_failed"; break;
@@ -164,6 +166,13 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
         if (cancelled()) { settled("cancelled"); result.status = "cancelled"; return result; }
         if (duration >= limit) { settled("timeout"); continue; }
         try {
+            if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
+                auto receipt = store_.abstain(a->id, *abstention, backend.telemetry());
+                result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", "abstained"},
+                    {"receipt", receipt}, {"outcome", outcome_json(outcome)}});
+                result.status = "abstained"; return result;
+            }
+            const auto& proposal = std::get<Proposal>(outcome);
             auto emission = make_emission(*a, session.execution, proposal, backend.telemetry());
             result.snapshot = store_.commit(a->id, proposal, wall(), {}, duration, emission);
         } catch (const Conflict&) { settled("conflict"); result.status = "conflict"; return result; }

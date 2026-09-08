@@ -49,11 +49,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         proposal = {'kind': 'speech', 'text': 'kept', 'memory': [], 'wake_after_ms': None}
+        if model in ('abstain', 'needs-frame', 'mixed', 'abstention', 'mixed-alias'):
+            proposal = {'kind': 'abstain', 'reason': 'missing_input', 'detail': 'A camera observation is required'}
+            if model in ('abstention', 'mixed-alias'):
+                proposal['kind'] = 'abstention'
+            if model in ('mixed', 'mixed-alias'):
+                proposal['memory'] = [{'key': 'forbidden', 'value': True}]
+        if model == 'from-frame':
+            present = json.loads(request['messages'][-1]['content'])
+            assert present['inputs'][0]['body']['content']['description'] == 'cat lies on a cushion'
+            proposal['text'] = 'The supplied observation describes the cat lying on a cushion.'
         content = json.dumps(proposal) if model != 'invalid' else '```json\n{}\n```'
         if self.path.endswith('/api/chat'):
             body = {'model': model, 'done': True, 'done_reason': 'stop', 'message': {'role': 'assistant', 'content': content}, 'prompt_eval_count': 300, 'eval_count': 20}
         else:
             body = {'model': model, 'choices': [{'finish_reason': 'length' if model == 'partial' else 'stop', 'message': {'role': 'assistant', 'content': content}}], 'usage': {'prompt_tokens': 300, 'completion_tokens': 20}}
+        if model == 'refusal':
+            body['choices'][0]['message'] = {'role': 'assistant', 'content': None, 'refusal': 'provider-secret-refusal'}
+        if model == 'filtered':
+            body['choices'][0]['finish_reason'] = 'content_filter'
+            body['choices'][0]['message']['content'] = 'provider-secret-partial'
         self.send_response(200)
         self.end_headers()
         try:
@@ -67,7 +82,7 @@ try:
     with tempfile.TemporaryDirectory() as directory:
         root = pathlib.Path(directory)
         config = root / 'config.json'
-        config.write_text(json.dumps({'executors': {name: {'kind': 'ollama' if name == 'ollama' else 'chat_completions', 'base_url': f'http://127.0.0.1:{server.server_port}', 'model': name} for name in ('ollama', 'good', 'broken', 'partial', 'invalid', 'slow', 'redirect', 'hold', 'huge')}}))
+        config.write_text(json.dumps({'executors': {name: {'kind': 'ollama' if name == 'ollama' else 'chat_completions', 'base_url': f'http://127.0.0.1:{server.server_port}', 'model': name} for name in ('ollama', 'good', 'broken', 'partial', 'invalid', 'slow', 'redirect', 'hold', 'huge', 'abstain', 'refusal', 'filtered', 'mixed', 'needs-frame', 'from-frame', 'abstention', 'mixed-alias')}}))
 
         def run(*args, code=0):
             result = subprocess.run([CLI, *map(str, args)], capture_output=True, text=True, timeout=20)
@@ -95,6 +110,45 @@ try:
         output = json.loads(run('run-route', db, 's', config, '--route', 'broken,good'))
         assert output['status'] == 'committed' and len(output['attempts']) == 2
         run('verify', db, 's')
+        # Separate CLI processes: abstain, attach host evidence, resume the SAME occasion.
+        import hashlib
+        for model in ('abstain', 'abstention', 'refusal', 'filtered'):
+            db = root / (model + '.db')
+            run('init', db, 's', 1, 100, 1000)
+            before = len(requests)
+            output = json.loads(run('run-route', db, 's', config, '--route', model + ',good', code=4))
+            assert output['status'] == 'abstained' and len(requests) == before + 1
+            trace = json.loads(run('inspect', db, 's'))
+            assert trace['tick'] == 0 and trace['attempts'][0]['status'] == 'abstained'
+            assert len(trace['abstentions']) == 1 and trace['occasions'][0]['consumed'] == ''
+            if model == 'abstention':
+                assert trace['abstentions'][0]['body']['provider']['normalization'] == 'abstention_to_abstain'
+            if model in ('refusal', 'filtered'):
+                assert trace['abstentions'][0]['body']['outcome']['reason'] == 'refused'
+            run('verify', db, 's')
+        db = root / 'cat.db'
+        run('init', db, 's', 1, 100, 1000)
+        output = json.loads(run('run-route', db, 's', config, '--route', 'needs-frame', code=4))
+        trace = json.loads(run('inspect', db, 's'))
+        body = {'schema': 'cogg:input/v1', 'kind': 'observation', 'producer': 'fixture:camera/frame-1', 'content': {'description': 'cat lies on a cushion'}, 'sources': []}
+        digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+        context = {'head': trace['head'], 'occasion': trace['attempts'][0]['body']['occasion'], 'inputs': [{'id': digest, 'body': body}]}
+        evidence = root / 'context.json'
+        evidence.write_text(json.dumps(context))
+        output = json.loads(run('run-route', db, 's', config, '--route', 'from-frame', '--context', evidence))
+        assert output['tick'] == 1 and 'supplied observation' in output['proposal']['text']
+        trace = json.loads(run('inspect', db, 's'))
+        assert trace['attempts'][0]['body']['occasion'] == trace['attempts'][1]['body']['occasion']
+        assert trace['attempts'][1]['body']['inputs'] == context['inputs']
+        run('verify', db, 's')
+        output = json.loads(run('run-route', db, 's', config, '--route', 'from-frame', '--context', evidence, code=3))
+        assert output['status'] == 'conflict'
+        # Mixed abstain + mutation fields are invalid, never partially applied.
+        db = root / 'mixed.db'
+        run('init', db, 's', 1, 100, 1000)
+        output = json.loads(run('run-route', db, 's', config, '--route', 'mixed', code=3))
+        assert output['attempts'][0]['status'] == 'invalid_output'
+        run('verify', db, 's')
         # Explicit prompt contains only this subject; no hidden previous messages.
         assert all(len(body['messages']) == 2 for _, body, _ in requests)
         forbidden = root / 'forbidden.json'
@@ -110,20 +164,20 @@ try:
         assert output['attempts'][0]['status'] == 'remote_denied' and len(requests) == before
         output = json.loads(run('run-route', db, 's', remote, '--route', 'remote', '--allow-remote'))
         assert output['status'] == 'committed'
-        # A real Phase 4 fixture migrates without changing old record bytes/hashes.
-        legacy = root / 'legacy.db'
-        with sqlite3.connect(legacy) as connection:
-            connection.executescript((pathlib.Path(__file__).parent / 'legacy-v3.sql').read_text())
-            original = connection.execute('select id,body from commits order by tick').fetchall()
-        run('verify', legacy, 'legacy')
-        run('send', legacy, 'legacy', 'upgrade', 'Continue with a different executor.')
-        output = json.loads(run('run-route', legacy, 'legacy', config, '--route', 'good'))
-        assert output['tick'] == 2
-        run('verify', legacy, 'legacy')
-        with sqlite3.connect(legacy) as connection:
-            assert connection.execute('pragma user_version').fetchone()[0] == 4
-            assert connection.execute('select id,body from commits order by tick').fetchall()[:len(original)] == original
-
+        # Real legacy fixtures migrate without changing old record bytes/hashes.
+        for version in (3, 4):
+            legacy = root / f'legacy-{version}.db'
+            with sqlite3.connect(legacy) as connection:
+                connection.executescript((pathlib.Path(__file__).parent / f'legacy-v{version}.sql').read_text())
+                original = connection.execute('select id,body from commits order by tick').fetchall()
+            run('verify', legacy, 'legacy')
+            run('send', legacy, 'legacy', 'upgrade', 'Continue with a different executor.')
+            output = json.loads(run('run-route', legacy, 'legacy', config, '--route', 'good'))
+            assert output['tick'] == 2
+            run('verify', legacy, 'legacy')
+            with sqlite3.connect(legacy) as connection:
+                assert connection.execute('pragma user_version').fetchone()[0] == 5
+                assert connection.execute('select id,body from commits order by tick').fetchall()[:len(original)] == original
         def held_process(db):
             slow_started.clear()
             slow_release.clear()

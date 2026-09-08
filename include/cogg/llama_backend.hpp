@@ -10,7 +10,8 @@ struct LlamaOptions {
     std::uint32_t max_output_tokens = 512;
     std::uint32_t batch_tokens = 128;
     int threads = 2;
-    bool internal_only = false; // grammar permits reflection/null, with memory writes
+    bool internal_only = false; // no speech transitions
+    bool allow_abstention = false; // opt in to the Outcome grammar after model calibration
     millis timeout_ms = 30000;
     // Optional built-in llama chat template name; otherwise use model metadata.
     std::string chat_template;
@@ -39,6 +40,7 @@ public:
     LlamaBackend& operator=(const LlamaBackend&) = delete;
     std::string name() const override;
     Proposal propose(const Present&) override;
+    Outcome respond_attempt(const Attempt&, millis timeout, const std::function<bool()>& cancelled) override;
     std::optional<MemoryPolicy> memory_policy() const override;
     bool context_fits(const Present&) const override;
     void committed(const Present&, const Snapshot&) override;

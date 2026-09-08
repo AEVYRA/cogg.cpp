@@ -315,7 +315,7 @@ Store::Store(const std::string& path) : impl_(std::make_unique<Impl>()) {
     Transaction tx(db);
     {
         Statement q(db, "PRAGMA user_version"); q.row();
-        require(q.number(0) == 0 || q.number(0) == 1 || q.number(0) == 2 || q.number(0) == 3 || q.number(0) == 4, "unsupported database version");
+        require(q.number(0) == 0 || q.number(0) == 1 || q.number(0) == 2 || q.number(0) == 3 || q.number(0) == 4 || q.number(0) == 5, "unsupported database version");
     }
     sql(db, R"SQL(
 CREATE TABLE IF NOT EXISTS subjects(
@@ -337,7 +337,9 @@ CREATE TABLE IF NOT EXISTS commits(
  id TEXT PRIMARY KEY, subject TEXT NOT NULL REFERENCES subjects(id),
  tick INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(subject,tick));
 PRAGMA application_id=1129269063;
-PRAGMA user_version=4;
+CREATE TABLE IF NOT EXISTS abstentions(
+ id TEXT PRIMARY KEY, attempt TEXT NOT NULL UNIQUE REFERENCES attempts(id), body TEXT NOT NULL);
+PRAGMA user_version=5;
 )SQL");
     detail::memory_schema(db);
     tx.commit();
@@ -349,7 +351,7 @@ void Store::create(const std::string& subject, Limits limits, millis now, const 
     check_text(subject, 128, "subject"); check_time(now);
     auto l = limits_json(limits);
     Transaction tx(impl_->db);
-    json genesis = {{"schema", 4}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
+    json genesis = {{"schema", 5}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
                     {"created_at", now}, {"nonce", random_id()}, {"limits", l},
                     {"memory", initial_memory}, {"wake_at", nullptr}};
     const auto id = hash(genesis);
@@ -371,7 +373,8 @@ std::string Store::submit(const std::string& subject, const std::string& key,
 }
 std::optional<Attempt> Store::admit(const std::string& subject, const std::string& backend, millis now,
                                     const std::optional<MemoryPolicy>& memory_policy,
-                                    const std::function<bool(const Present&)>& fits, const json& execution) {
+                                    const std::function<bool(const Present&)>& fits, const json& execution, const json& context) {
+    validate_admission_context(context);
     validate_execution(execution);
     require(execution.is_null() || execution.at("backend") == backend, "execution backend mismatch");
     check_time(now); check_text(backend, 200, "backend");
@@ -379,6 +382,9 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
     Transaction tx(db);
     auto s = impl_->snapshot(subject);
     const auto decision = impl_->schedule(subject, now);
+    if (!context.is_null() && (context.at("head") != s.head ||
+        decision.at("occasion").is_null() || context.at("occasion") != decision.at("occasion").at("id")))
+        throw Conflict("stale admission context");
     if (decision.at("status") != "ready") { tx.commit(); return std::nullopt; }
     const auto observed = now;
     now = decision.at("accounting_at").get<millis>();
@@ -400,11 +406,13 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
     bool unsettled = prior.number(0) > 0;
     Statement account(db, "UPDATE subjects SET accounting_wall=? WHERE id=?");
     account.bind(1, now).bind(2, subject).done();
-    json body = {{"schema", 4}, {"nonce", random_id()}, {"subject", subject},
+    json body = {{"schema", 5}, {"nonce", random_id()}, {"subject", subject},
                  {"parent", s.head}, {"tick", s.tick}, {"occasion", o.id},
                  {"backend", backend}, {"admitted_at", now}, {"prior_unsettled", unsettled},
                  {"wall_observed_at", observed}, {"temporal", temporal}, {"execution", execution}};
     Present present{s, o, unsettled, temporal};
+    if (!context.is_null()) present.inputs = context.at("inputs");
+    body["inputs"] = present.inputs;
     if (memory_policy) {
         auto policy = *memory_policy;
         if (policy.query.empty()) policy.query = o.payload.is_object() && o.payload.contains("text") && o.payload.at("text").is_string() ? o.payload.at("text").get<std::string>() : "";
@@ -412,6 +420,7 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
         detail::project_memory(present, candidates, policy, fits);
         body["context"] = {{"memory", present.working_memory}, {"view", present.memory_view}};
     }
+    if (fits && !fits(present)) throw ContextOverflow("admitted context exceeds backend capacity");
     const auto id = hash(body);
     Statement insert(db, "INSERT INTO attempts(id,subject,parent,occasion,admitted_at,body,status) "
                          "VALUES(?,?,?,?,?,?,'reserved')");
@@ -458,7 +467,7 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     auto limits = impl_->config(subject);
     const auto plan = impl_->wake_plan(subject, limits, proposal, now);
     const auto wake = read_time(plan.at("granted_at"));
-    json body = {{"schema", 4}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
+    json body = {{"schema", 5}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
                  {"occasion", oid}, {"attempt", attempt}, {"proposal", p},
                  {"memory", memory}, {"wake_at", optional_time(wake)}, {"committed_at", now},
                  {"wall_observed_at", observed}, {"wake_plan", plan},
@@ -482,6 +491,29 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     tx.commit();
     if (hook) hook(CommitPoint::after_sql_commit);
     return Snapshot{subject, tick, id, memory, wake, wake ? "sleeping" : "waiting_external"};
+}
+std::string Store::abstain(const std::string& attempt, const Abstention& outcome, const json& provider) {
+    const auto value = outcome_json(outcome);
+    require(provider.is_object() && provider.dump().size() <= 8192, "invalid provider receipt");
+    auto* db = impl_->db; Transaction tx(db);
+    Statement aq(db, "SELECT body,status FROM attempts WHERE id=?");
+    aq.bind(1, attempt); require(aq.row(), "attempt missing");
+    const auto a = json::parse(aq.text(0)); require(hash(a) == attempt, "attempt hash mismatch");
+    json body = {{"schema", "cogg:abstention/v1"}, {"attempt", attempt}, {"subject", a.at("subject")},
+        {"parent", a.at("parent")}, {"occasion", a.at("occasion")},
+        {"execution", a.value("execution", json(nullptr))}, {"outcome", value}, {"provider", provider}};
+    const auto id = hash(body);
+    Statement old(db, "SELECT id FROM abstentions WHERE attempt=?"); old.bind(1, attempt);
+    if (old.row()) {
+        if (old.text(0) != id || aq.text(1) != "abstained") throw Conflict("different abstention already settled");
+        tx.commit(); return id;
+    }
+    if (aq.text(1) != "reserved" || impl_->snapshot(a.at("subject").get<std::string>()).head != a.at("parent"))
+        throw Conflict("attempt already settled or stale");
+    Statement insert(db, "INSERT INTO abstentions VALUES(?,?,?)");
+    insert.bind(1, id).bind(2, attempt).bind(3, body.dump()).done();
+    Statement settle(db, "UPDATE attempts SET status='abstained' WHERE id=?"); settle.bind(1, attempt).done();
+    tx.commit(); return id;
 }
 void Store::fail(const std::string& attempt, const std::string& reason) {
     Statement q(impl_->db, "UPDATE attempts SET status='failed',error=? WHERE id=? AND status='reserved'");
@@ -518,6 +550,10 @@ json Store::timeline(const std::string& subject) {
     Statement a(db, "SELECT id,body,status,error FROM attempts WHERE subject=? ORDER BY seq"); a.bind(1, subject);
     while (a.row()) result["attempts"].push_back({{"id", a.text(0)}, {"body", json::parse(a.text(1))},
                                                {"status", a.text(2)}, {"error", a.text(3)}});
+    result["abstentions"] = json::array();
+    Statement outcomes(db, "SELECT o.id,o.body FROM abstentions o JOIN attempts a ON a.id=o.attempt WHERE a.subject=? ORDER BY a.seq");
+    outcomes.bind(1, subject);
+    while (outcomes.row()) result["abstentions"].push_back({{"id", outcomes.text(0)}, {"body", json::parse(outcomes.text(1))}});
     Statement e(db, "SELECT id,body,consumed FROM occasions WHERE subject=? ORDER BY seq"); e.bind(1, subject);
     while (e.row()) result["occasions"].push_back({{"id", e.text(0)}, {"body", json::parse(e.text(1))},
                                                 {"consumed", e.text(2)}});
@@ -541,7 +577,7 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     while (q.row()) {
         auto b = json::parse(q.text(2));
         require(q.number(1) == tick && b.at("tick") == tick && b.at("subject") == subject &&
-                (b.at("schema") == 1 || b.at("schema") == 2 || b.at("schema") == 3 || b.at("schema") == 4) && hash(b) == q.text(0), "commit integrity failure");
+                (b.at("schema") == 1 || b.at("schema") == 2 || b.at("schema") == 3 || b.at("schema") == 4 || b.at("schema") == 5) && hash(b) == q.text(0), "commit integrity failure");
         if (tick == 0) {
             committed_wall = b.at("created_at").get<millis>();
             check_time(committed_wall);
@@ -564,7 +600,7 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
             require(hash(ab) == aid && ab.at("subject") == subject && ab.at("parent") == head &&
                     ab.at("tick") == tick - 1 && ab.at("occasion") == oid && a.text(1) == "committed",
                     "attempt provenance mismatch");
-            if (b.at("schema") == 4) require(b.contains("emission"), "missing emission field");
+            if (b.at("schema") >= 4) require(b.contains("emission"), "missing emission field");
             validate_emission(b.value("emission", json(nullptr)), aid, ab, b.at("proposal"));
             auto p = parse_proposal(b.at("proposal"));
             for (const auto& w : p.memory) memory[w.key] = w.value;
@@ -611,11 +647,12 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
                 b.at("parent") == attempts.text(2) && b.at("occasion") == attempts.text(3) &&
                 b.at("admitted_at") == attempts.number(4) && chain.count(attempts.text(2)) == 1 &&
                 attempts.number(4) >= previous, "admission integrity failure");
-        require(b.at("schema").is_number_integer() && b.at("schema") >= 1 && b.at("schema") <= 4, "unsupported admission schema");
+        require(b.at("schema").is_number_integer() && b.at("schema") >= 1 && b.at("schema") <= 5, "unsupported admission schema");
         validate_execution(b.value("execution", json(nullptr)));
-        if (b.at("schema") == 4) require(b.contains("execution"), "missing execution descriptor");
+        if (b.at("schema") >= 4) require(b.contains("execution"), "missing execution descriptor");
         if (b.contains("execution") && !b.at("execution").is_null())
             require(b.at("execution").at("backend") == b.at("backend"), "admission backend mismatch");
+        if (b.at("schema") >= 5) validate_inputs(b.at("inputs"));
         const auto event = impl_->event(attempts.text(3));
         require(event.at("subject") == subject, "foreign admitted occasion");
         if (b.at("schema").get<int>() >= 2) {
@@ -633,8 +670,23 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
         }
         previous = attempts.number(4);
         const auto status = attempts.text(5);
-        require(status == "reserved" || status == "committed" || status == "failed" || status == "superseded",
+        require(status == "reserved" || status == "committed" || status == "failed" || status == "superseded" || status == "abstained",
                 "unknown attempt status");
+        Statement outcome(db, "SELECT id,body FROM abstentions WHERE attempt=?"); outcome.bind(1, attempts.text(0));
+        const bool exists = outcome.row();
+        require(exists == (status == "abstained"), "abstention settlement mismatch");
+        if (exists) {
+            const auto o = json::parse(outcome.text(1));
+            require(o.is_object() && o.size() == 8 && hash(o) == outcome.text(0) &&
+                o.at("schema") == "cogg:abstention/v1" && o.at("attempt") == attempts.text(0) &&
+                o.at("subject") == subject && o.at("parent") == b.at("parent") && o.at("occasion") == b.at("occasion") &&
+                o.at("execution") == b.value("execution", json(nullptr)) &&
+                o.at("provider").is_object() && o.at("provider").dump().size() <= 8192 &&
+                std::holds_alternative<Abstention>(parse_outcome(o.at("outcome"))), "abstention integrity failure");
+            Statement used(db, "SELECT count(*) FROM commits WHERE subject=? AND json_extract(body,'$.attempt')=?");
+            used.bind(1, subject).bind(2, attempts.text(0)); used.row();
+            require(used.number(0) == 0, "abstained attempt committed");
+        }
     }
     Statement accounting(db, "SELECT accounting_wall FROM subjects WHERE id=?");
     accounting.bind(1, subject); accounting.row();
@@ -650,19 +702,25 @@ json Store::record(const std::string& id) {
     require(hash(body) == id, "record hash mismatch");
     return body;
 }
-std::optional<Snapshot> Runtime::step(const std::string& subject, millis now) {
+std::optional<Snapshot> Runtime::step(const std::string& subject, millis now, const json& context) {
+    abstention_.reset();
     maintenance_error_.clear();
     if (!verified_.count(subject)) {
         store_.verify(subject);
         verified_.insert(subject);
     }
     auto a = store_.admit(subject, backend_.name(), now, backend_.memory_policy(),
-                          [&](const Present& p) { return backend_.context_fits(p); });
+                          [&](const Present& p) { return backend_.context_fits(p); }, nullptr, context);
     if (!a) return std::nullopt;
     const auto started = std::chrono::steady_clock::now();
     Snapshot result;
     try {
-        auto p = backend_.propose(a->present);
+        auto outcome = backend_.respond_attempt(*a, 3600000, {});
+        if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
+            store_.abstain(a->id, *abstention, backend_.telemetry());
+            abstention_ = *abstention; return std::nullopt;
+        }
+        const auto& p = std::get<Proposal>(outcome);
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started).count();
         result = store_.commit(a->id, p, wall_clock_ ? wall_clock_() : add(now, elapsed), {}, elapsed);

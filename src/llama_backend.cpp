@@ -109,7 +109,7 @@ struct LlamaBackend::Impl {
             {"model_sha256", hash}, {"context_tokens", options.context_tokens},
             {"max_output_tokens", options.max_output_tokens}, {"batch_tokens", options.batch_tokens},
             {"threads", options.threads}, {"timeout_ms", options.timeout_ms},
-            {"template", options.chat_template}, {"sampling", "grammar-greedy/v1"}, {"internal_only", options.internal_only}}).dump();
+            {"template", options.chat_template}, {"sampling", "grammar-greedy/v1"}, {"internal_only", options.internal_only}, {"allow_abstention", options.allow_abstention}}).dump();
         unsigned char digest[EVP_MAX_MD_SIZE]; unsigned int size = 0;
         if (EVP_Digest(manifest.data(), manifest.size(), digest, &size, EVP_sha256(), nullptr) != 1)
             throw Error("backend manifest hash failed");
@@ -208,7 +208,7 @@ struct LlamaBackend::Impl {
         stats.checkpoint_write = "saved";
         pending_head.clear(); pending_tick = -1;
     }
-    std::vector<llama_token> prompt(const Present& p) {
+    std::vector<llama_token> prompt(const Present& p, bool outcome_mode = false) {
         nlohmann::ordered_json data = {{"memory", p.working_memory.is_null() ? p.state.memory : p.working_memory},
             {"deposits", p.memory_view.is_null() ? json::array() : p.memory_view.at("items")},
             {"subject", p.state.subject}, {"tick", p.state.tick},
@@ -221,10 +221,19 @@ struct LlamaBackend::Impl {
             auto receipt = p.memory_view; receipt.erase("items");
             data["memory_view"] = receipt;
         }
+        if (!p.inputs.empty()) data["inputs"] = p.inputs;
         const auto body = data.dump();
         if (body.size() > 2 * 1048576) throw Error("canonical present exceeds prompt byte limit");
-        const auto system = std::string(instruction) + (options.internal_only ?
-            "\nThis run permits reflection or null only. Do not speak. Continue useful unfinished work from memory, or wait." : "");
+        const auto system = (outcome_mode ? std::string(
+            "Return one cogg outcome: either an abstention or a transition.\n"
+            "Abstain when required evidence is missing, the task is unsupported, a conclusion is uncertain, or you decline to respond.\n"
+            "An abstention has exactly this form: {\"kind\":\"abstain\",\"reason\":\"missing_input\",\"detail\":\"No observation supplied\"}.\n"
+            "Choose one reason: missing_input, unsupported, uncertain, refused. No text, memory, notes or wake fields are allowed in an abstention.\n"
+            "Committed memory, deposits and the occasion also supply information. Use them for memory questions; supplemental inputs are not required for ordinary conversation.\n"
+            "inputs are additional host assertions. Their sources preserve provenance, not proof of truth. Empty inputs means no supplemental observation, not an absence of memory.\n"
+            "If you choose a TRANSITION instead, follow these transition rules:\n") : std::string()) + instruction + (options.internal_only ?
+            (outcome_mode ? "\nThe host disables speech transitions. Reflection, null and abstention are permitted." :
+             "\nThis run permits reflection or null only. Do not speak. Continue useful unfinished work from memory, or wait.") : "");
         const llama_chat_message messages[] = {{"system", system.c_str()}, {"user", body.c_str()}};
         const char* tmpl = options.chat_template.empty() ?
             llama_model_chat_template(model.get(), nullptr) : options.chat_template.c_str();
@@ -253,7 +262,7 @@ struct LlamaBackend::Impl {
         }
         check_deadline();
     }
-    Proposal propose(const Present& p) {
+    Outcome respond(const Present& p, bool allow_abstention) {
         stats = {};
         pending_head.clear(); pending_tick = -1;
         if (!options.checkpoint_directory.empty()) {
@@ -263,7 +272,7 @@ struct LlamaBackend::Impl {
         deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(options.timeout_ms);
         try {
             check_deadline();
-            auto tokens = prompt(p);
+            auto tokens = prompt(p, allow_abstention);
             stats.prompt_tokens = tokens.size();
             if (cached_subject != p.state.subject) release();
             const bool cold = !context;
@@ -292,7 +301,11 @@ struct LlamaBackend::Impl {
                 if (at == std::string::npos) throw Error("internal-only grammar mismatch");
                 allowed.erase(at, speech.size());
             }
-            auto* rules = llama_sampler_init_grammar(vocab, allowed.c_str(), "root");
+            if (allow_abstention) allowed += R"gbnf(
+response ::= root | abstention
+abstention ::= "{" ws "\"kind\":" ws "\"abstain\"" ws "," ws "\"reason\":" ws ("\"missing_input\"" | "\"unsupported\"" | "\"uncertain\"" | "\"refused\"") ws "," ws "\"detail\":" ws string "}" ws
+)gbnf";
+            auto* rules = llama_sampler_init_grammar(vocab, allowed.c_str(), allow_abstention ? "response" : "root");
             if (!rules) throw Error("transition grammar initialization failed");
             llama_sampler_chain_add(sampler.get(), rules);
             llama_sampler_chain_add(sampler.get(), llama_sampler_init_greedy());
@@ -314,10 +327,10 @@ struct LlamaBackend::Impl {
                 if (output.size() > 65536) throw Error("transition output byte limit exceeded");
                 const auto value = json::parse(output, nullptr, false);
                 if (!value.is_discarded()) {
-                    auto result = parse_proposal(value);
-                    if (options.internal_only && result.kind == "speech") throw Error("speech disabled by host");
+                    auto result = parse_outcome(value);
+                    if (options.internal_only && std::holds_alternative<Proposal>(result) && std::get<Proposal>(result).kind == "speech") throw Error("speech disabled by host");
                     check_deadline();
-                    pending_head = p.state.head; pending_tick = p.state.tick;
+                    if (std::holds_alternative<Proposal>(result)) { pending_head = p.state.head; pending_tick = p.state.tick; }
                     return result;
                 }
                 decode(&token, 1);
@@ -330,7 +343,20 @@ struct LlamaBackend::Impl {
 LlamaBackend::LlamaBackend(LlamaOptions options) : impl_(std::make_unique<Impl>(std::move(options))) {}
 LlamaBackend::~LlamaBackend() = default;
 std::string LlamaBackend::name() const { return impl_->identity; }
-Proposal LlamaBackend::propose(const Present& p) { return impl_->propose(p); }
+Proposal LlamaBackend::propose(const Present& p) { return std::get<Proposal>(impl_->respond(p, false)); }
+Outcome LlamaBackend::respond_attempt(const Attempt& a, millis timeout, const std::function<bool()>& cancel) {
+    // Temporarily combine the route deadline/cancellation with configured backend limits.
+    const auto old_timeout = impl_->options.timeout_ms;
+    const auto old_cancel = impl_->options.cancelled;
+    impl_->options.timeout_ms = std::min(old_timeout, timeout);
+    impl_->options.cancelled = [old_cancel, cancel] { return (old_cancel && old_cancel()) || (cancel && cancel()); };
+    try {
+        auto result = impl_->respond(a.present, impl_->options.allow_abstention);
+        impl_->options.timeout_ms = old_timeout; impl_->options.cancelled = old_cancel; return result;
+    } catch (...) {
+        impl_->options.timeout_ms = old_timeout; impl_->options.cancelled = old_cancel; throw;
+    }
+}
 void LlamaBackend::committed(const Present& p, const Snapshot& s) { impl_->committed(p, s); }
 void LlamaBackend::release_context() { impl_->release(); }
 InferenceStats LlamaBackend::stats() const { return impl_->stats; }
@@ -339,7 +365,7 @@ InferenceStats LlamaBackend::stats() const { return impl_->stats; }
 namespace cogg {
 std::optional<MemoryPolicy> LlamaBackend::memory_policy() const { return MemoryPolicy{}; }
 bool LlamaBackend::context_fits(const Present& p) const {
-    try { impl_->prompt(p); return true; }
+    try { impl_->prompt(p, impl_->options.allow_abstention); return true; }
     catch (const Error& e) {
         if (std::string(e.what()).find("exceeds context budget") != std::string::npos) return false;
         throw;

@@ -14,6 +14,7 @@ If the host process is interrupted mid-generation, `cogg.cpp` can recover the la
 * **Autonomous Scheduling (Endogenous Time):** The model can request its next wake-up time. The kernel enforces admission budgets, minimum/maximum sleep intervals, and quotas, decoupling raw CPU time from the agent's subjective continuation.
 * **Crash-Resilient Inference:** Powered by an embedded `llama.cpp` backend. KV caches are persisted to disk and tied to specific commit hashes, enabling seamless warm/cold process restoration after a crash or eviction.
 * **Bounded Working Memory:** Typed deposits remain in durable history while the model receives a selected context. Open tasks, source-linked summaries and version-aware retrieval are checked by the kernel.
+* **Explicit Non-participation:** An executor can abstain without changing subject state. The host can supply source-linked evidence for another attempt at the same request.
 * **Idempotent Inbox:** External events and messages queue safely and survive process exits.
 
 ## Relationship with llama.cpp
@@ -22,12 +23,12 @@ If the host process is interrupted mid-generation, `cogg.cpp` can recover the la
 
 What `cogg.cpp` adds architecturally on top of this inference engine is the **durable transition kernel**:
 * **State & Time:** While `llama.cpp` computes the next tokens, `cogg.cpp` manages the agent's lifecycle. It decides *when* the model is allowed to run, tracking its subjective time, and enforcing autonomous scheduling and quotas.
-* **Persistence:** `cogg.cpp` wraps the inference in SQLite transactions. It saves the model's memory, inbox events, and wake decisions to a cryptographically hashed commit chain.
+* **Persistence:** `cogg.cpp` reserves attempts and commits accepted results in SQLite transactions; inference runs outside the write lock. It saves the model's memory, inbox events, and wake decisions to a cryptographically hashed commit chain.
 * **KV Cache Lifecycle:** `cogg.cpp` manages the persistence of `llama.cpp`'s KV cache to disk, tying specific cache blobs to exact commit hashes. A restarted process restores a compatible cache and reuses the matching canonical prefix. Missing, stale or incompatible caches trigger reconstruction from committed state. Interrupted generation may be repeated and may produce different text; checkpoint publication is separate from the SQLite commit.
 
 ## Status
 
-**Current Version: 0.6.0 (Experimental Phase 5)**
+**Current Version: 0.7.0 (Experimental Phase 6)**
 
 - [x] **Phase 0:** Durable kernel contract
 - [x] **Phase 1:** Local model build and inference (libllama)
@@ -36,7 +37,8 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 - [ ] **Phase 3 validation:** Real 48-hour observation and state-dependent waking assessment; see [protocol](docs/PHASE-3.md)
 - [x] **Phase 4 mechanisms:** Typed deposits, bounded working context, retrieval and source-preserving compaction; [contract and evidence](docs/PHASE-4.md)
 - [x] **Phase 5:** Heterogeneous executors, isolated sessions, bounded routing and admission-bound emissions
-- [ ] **Phase 6:** Cognitive integration and disagreement
+- [x] **Phase 6 mechanisms:** Typed abstention and bounded provenance inputs; [composition boundary](docs/PHASE-6.md)
+- [ ] **Phase 6 model quality:** Reliable evidence-aware participation across models; see [validation](docs/phase6-validation-20260908.json)
 - [ ] **Phase 7:** Crystal / self-model
 - [ ] **Phase 8:** Multimodal perception
 

@@ -48,16 +48,21 @@ std::string credential(const json& config) {
     }
     need(safe_string(key, 8192), "credential missing or invalid"); return key;
 }
-constexpr auto instruction = R"(You propose one cogg transition. Return ONLY a JSON object. A valid no-action example is:
-{"kind":"null","text":"","memory":[],"wake_after_ms":null}.
-Allowed kind values: null, reflection, speech. Each memory write has exactly two fields: key (the actual memory key to change) and value (its new value).
-Only speech may have nonempty text. Use reflection to update memory without speaking, null for no action.
-Memory writes replace only named keys; [] preserves memory. Do not invent facts or claim omitted memory is absent.
+constexpr auto instruction = R"(Return one cogg outcome: either an abstention or a transition. Return ONLY a JSON object.
+Abstain when required evidence is missing, the task is unsupported, a conclusion is uncertain, or you decline to respond.
+An abstention has exactly this form: {"kind":"abstain","reason":"missing_input","detail":"No observation supplied"}.
+Choose one reason: missing_input, unsupported, uncertain, refused. Abstention has no text, memory, notes or wake fields and leaves the occasion pending.
+inputs are host assertions. Observation/inference labels do not certify truth. Sources preserve attribution; an inference is not a new observation. An empty inputs list supplies no observation. Never claim camera or image access without supplied evidence.
+If you choose a TRANSITION instead, follow these transition rules:
+A valid no-action example is {"kind":"null","text":"","memory":[],"wake_after_ms":null}.
+Transition kind values: null, reflection, speech. Only speech may have nonempty text. Use reflection to update memory without speaking, null for no action.
+Each memory write has exactly key (the actual key to change) and value (its new value). [] preserves memory. Never copy illustrative placeholders as actual keys.
 Optional notes: [{"key":"name","text":"content","type":"note|fact|episode|task|summary","status":"active|open|closed|retracted","sources":[],"covers":[]}].
-Sources/covers must name existing deposit IDs from this subject. Omit notes when unnecessary.
-Memory/deposits are a selected view, not the entire history. Subject, tick, parent and timing are host-owned.
-No tools or authority to change history. For a created occasion, preserve initial memory; no speech is needed.
-For external occasions requesting an answer, use kind speech and put the answer in text. Preserve memory with [] unless explicitly asked to change it. Never copy illustrative field placeholders as actual memory keys. Request no autonomous wake unless needed.)";
+Note sources/covers must name existing deposit IDs from this subject, not input packet IDs. Omit notes when unnecessary.
+Memory/deposits are selected views, not the entire history. Do not invent facts or claim omitted memory is absent.
+Subject, tick, parent and timing are host-owned. No tools or authority to change history.
+For a created occasion, preserve initial memory; no speech is needed. For a supported external request, put the answer in speech text.
+Preserve memory unless explicitly asked to change it. Request no autonomous wake unless needed.)";
 // Ollama enforces the output shape; kernel validation still owns semantic invariants.
 json proposal_schema() {
     return json::parse(R"JSON({
@@ -250,7 +255,7 @@ struct HttpBackend::Impl {
             {"memory", p.working_memory.is_null() ? p.state.memory : p.working_memory},
             {"deposits", deposits}, {"memory_view", view},
             {"subject", p.state.subject}, {"tick", p.state.tick}, {"parent", p.state.head},
-            {"temporal", p.temporal}, {"prior_unsettled_attempt", p.prior_unsettled_attempt},
+            {"temporal", p.temporal}, {"prior_unsettled_attempt", p.prior_unsettled_attempt}, {"inputs", p.inputs},
             {"occasion", {{"id", p.occasion.id}, {"kind", p.occasion.kind}, {"payload", p.occasion.payload}}}};
         return json::array({{{"role", "system"}, {"content", instruction}}, {{"role", "user"}, {"content", data.dump()}}});
     }
@@ -266,11 +271,21 @@ std::optional<MemoryPolicy> HttpBackend::memory_policy() const {
 bool HttpBackend::context_fits(const Present& p) const { return impl_->messages(p).dump().size() <= impl_->max_prompt; }
 Proposal HttpBackend::propose(const Present&) { throw BackendFailure("HTTP inference requires an admitted attempt"); }
 Proposal HttpBackend::propose_attempt(const Attempt& a, millis timeout, const std::function<bool()>& cancelled) {
+    auto outcome = respond_attempt(a, timeout, cancelled);
+    if (auto p = std::get_if<Proposal>(&outcome)) return *p;
+    throw BackendFailure("abstention requires the Outcome API");
+}
+Outcome HttpBackend::respond_attempt(const Attempt& a, millis timeout, const std::function<bool()>& cancelled) {
     impl_->receipt = json::object();
     need(timeout > 0 && timeout <= 3600000 && context_fits(a.present), "HTTP inference exceeds limits");
     json request = {{"model", impl_->config.at("model")}, {"messages", impl_->messages(a.present)}, {"stream", false}};
     if (impl_->ollama) {
-        request["format"] = proposal_schema(); request["keep_alive"] = "2m";
+        request["format"] = {{"anyOf", json::array({proposal_schema(), {
+            {"type", "object"}, {"additionalProperties", false},
+            {"required", json::array({"kind", "reason", "detail"})},
+            {"properties", {{"kind", {{"const", "abstain"}}},
+                {"reason", {{"type", "string"}, {"enum", json::array({"missing_input", "unsupported", "uncertain", "refused"})}}},
+                {"detail", {{"type", "string"}}}}}}})}}; request["keep_alive"] = "2m";
         request["options"] = {{"num_ctx", impl_->context}, {"num_predict", impl_->output}, {"num_thread", impl_->threads}, {"temperature", 0}};
     } else {
         request["max_tokens"] = impl_->output;
@@ -295,7 +310,7 @@ Proposal HttpBackend::propose_attempt(const Attempt& a, millis timeout, const st
     Transfer transfer{{}, &cancelled};
     auto set = [&](CURLoption option, auto value) { need(curl_easy_setopt(handle.get(), option, value) == CURLE_OK, "HTTP option rejected"); };
     set(CURLOPT_URL, impl_->url.c_str()); set(CURLOPT_HTTPHEADER, headers.get());
-    set(CURLOPT_USERAGENT, "cogg.cpp/0.6.0"); set(CURLOPT_POST, 1L);
+    set(CURLOPT_USERAGENT, "cogg.cpp/0.7.0"); set(CURLOPT_POST, 1L);
     set(CURLOPT_POSTFIELDS, body.c_str()); set(CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));
     set(CURLOPT_TIMEOUT_MS, static_cast<long>(timeout)); set(CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(std::min<millis>(timeout, 5000)));
     set(CURLOPT_NOSIGNAL, 1L); set(CURLOPT_FOLLOWLOCATION, 0L);
@@ -312,7 +327,7 @@ Proposal HttpBackend::propose_attempt(const Attempt& a, millis timeout, const st
     // Deliberately do not forward provider error bodies or parser excerpts to logs.
     try {
         need(key.empty() || transfer.response.find(key) == std::string::npos, "credential echoed by provider");
-        auto response = json::parse(transfer.response); std::string content;
+        auto response = json::parse(transfer.response); std::string content; bool refused = false;
         json receipt = {{"adapter", impl_->ollama ? "ollama" : "chat_completions"}, {"usage", json::object()}};
         if (response.contains("model") && response.at("model").is_string()) {
             auto model = response.at("model").get<std::string>(); need(safe_string(model, 200), "invalid model receipt"); receipt["reported_model"] = model;
@@ -333,15 +348,25 @@ Proposal HttpBackend::propose_attempt(const Attempt& a, millis timeout, const st
         } else {
             need(response.at("choices").is_array() && response.at("choices").size() == 1, "ambiguous completion");
             const auto& choice = response.at("choices").at(0); const auto& message = choice.at("message");
-            need(choice.at("finish_reason") == "stop" && message.at("role") == "assistant" &&
-                (!message.contains("tool_calls") || message.at("tool_calls").empty()) &&
-                (!message.contains("refusal") || message.at("refusal").is_null()), "incomplete completion");
-            content = message.at("content").get<std::string>();
+            need((choice.at("finish_reason") == "stop" || choice.at("finish_reason") == "content_filter") && message.at("role") == "assistant" &&
+                (!message.contains("tool_calls") || message.at("tool_calls").empty()), "incomplete completion");
+            refused = choice.at("finish_reason") == "content_filter";
+            if (message.contains("refusal") && !message.at("refusal").is_null()) {
+                need(message.at("refusal").is_string(), "invalid refusal field");
+                refused = refused || !message.at("refusal").get_ref<const std::string&>().empty();
+            }
+            if (!refused) content = message.at("content").get<std::string>();
             if (response.contains("usage")) {
                 usage(response.at("usage"), "prompt_tokens", "prompt_tokens"); usage(response.at("usage"), "completion_tokens", "completion_tokens");
             }
         }
-        auto proposal = parse_proposal(json::parse(content)); impl_->receipt = receipt; return proposal;
+        json value = refused ? outcome_json(Abstention{"refused", "Provider declined to respond"}) : json::parse(content);
+        // A narrowly defined wire alias, never inference from free-text speech.
+        if (value.is_object() && value.value("kind", "") == "abstention") {
+            value["kind"] = "abstain"; receipt["normalization"] = "abstention_to_abstain";
+        }
+        Outcome outcome = parse_outcome(value);
+        impl_->receipt = receipt; return outcome;
     } catch (...) { throw BackendFailure("invalid or incomplete provider proposal", FailureKind::invalid_output); }
 }
 void register_http(Registry& registry, const json& config) {

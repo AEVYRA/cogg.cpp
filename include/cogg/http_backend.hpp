@@ -10,6 +10,7 @@ public:
     std::string name() const override;
     Proposal propose(const Present&) override;
     Proposal propose_attempt(const Attempt&, millis timeout, const std::function<bool()>& cancelled) override;
+    Outcome respond_attempt(const Attempt&, millis timeout, const std::function<bool()>& cancelled) override;
     std::optional<MemoryPolicy> memory_policy() const override;
     bool context_fits(const Present&) const override;
     json telemetry() const override;

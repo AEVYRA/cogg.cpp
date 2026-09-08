@@ -44,11 +44,11 @@ void usage() {
                  "cogg-cli run DB SUBJECT [steps=0 idle-base-ms=0]\n"
                  "cogg-cli run-model DB SUBJECT MODEL.gguf [--steps N] [--ctx N]\n"
                  "    [--tokens N] [--threads N] [--timeout-ms N] [--template NAME]\n"
-                 "    [--release-context] [--once] [--internal-only]\n"
+                 "    [--release-context] [--once] [--internal-only] [--allow-abstention] [--context FILE (requires --once)]\n"
                  "    [--checkpoint-dir DIRECTORY] [--checkpoint-mib N]\n"
                  "cogg-cli run-route DB SUBJECT CONFIG --route ID[,ID...] [--allow-remote]\n"
                  "    [--timeout-ms N] [--attempt-timeout-ms N] [--require-exact-tokens]\n"
-                 "    [--require-checkpoint] [--require-cancellation] (one routed step)\n"
+                 "    [--require-checkpoint] [--require-cancellation] [--context FILE] (one routed step)\n"
                  "cogg-cli schedule DB SUBJECT\n"
                  "cogg-cli duration DB SUBJECT FROM-COMMIT TO-COMMIT\n"
                  "cogg-cli inspect DB SUBJECT\n"
@@ -107,7 +107,11 @@ int main(int argc, char** argv) {
                 if (flag == "--require-checkpoint") { route.require_checkpoint = true; continue; }
                 if (flag == "--require-cancellation") { route.require_cancellation = true; continue; }
                 if (++i >= argc) throw cogg::Error("missing route option value");
-                if (flag == "--route") {
+                if (flag == "--context") {
+                    std::ifstream file(argv[i]);
+                    if (!file) throw cogg::Error("cannot open admission context");
+                    file >> route.context;
+                } else if (flag == "--route") {
                     std::istringstream in(argv[i]); std::string id;
                     while (std::getline(in, id, ',')) route.executors.push_back(id);
                 } else if (flag == "--timeout-ms") route.timeout_ms = number(argv[i]);
@@ -131,12 +135,14 @@ int main(int argc, char** argv) {
             } else output["schedule"] = store.schedule(subject, cogg::wall_now());
             std::cout << output.dump() << std::endl;
             if (result.status == "cancelled") return 130;
+            if (result.status == "abstained") return 4;
             if (result.status != "committed" && result.status != "waiting") return 3;
 #else
             throw cogg::Error("run-route requires a build with -DCOGG_HTTP=ON");
 #endif
         } else if (command == "run-model" && argc >= 5) {
 #ifdef COGG_LLAMA
+            cogg::json context = nullptr;
             cogg::LlamaOptions options;
             options.model_path = argv[4];
             std::int64_t steps = 0;
@@ -145,8 +151,14 @@ int main(int argc, char** argv) {
                 const std::string flag = argv[i];
                 if (flag == "--release-context") { release = true; continue; }
                 if (flag == "--once") { once = true; continue; }
+                if (flag == "--allow-abstention") { options.allow_abstention = true; continue; }
                 if (flag == "--internal-only") { options.internal_only = true; continue; }
                 if (++i >= argc) throw cogg::Error("missing value for " + flag);
+                if (flag == "--context") {
+                    std::ifstream file(argv[i]);
+                    if (!file) throw cogg::Error("cannot open admission context");
+                    file >> context; continue;
+                }
                 if (flag == "--template") { options.chat_template = argv[i]; continue; }
                 if (flag == "--checkpoint-dir") { options.checkpoint_directory = argv[i]; continue; }
                 const auto n = number(argv[i]);
@@ -164,6 +176,8 @@ int main(int argc, char** argv) {
                     else throw cogg::Error("unknown option: " + flag);
                 }
             }
+            if (!context.is_null() && !once) throw cogg::Error("bound context requires --once");
+            cogg::validate_admission_context(context);
             store.verify(subject);
             std::signal(SIGINT, stop); std::signal(SIGTERM, stop);
             options.cancelled = [] { return stopping != 0; };
@@ -172,7 +186,7 @@ int main(int argc, char** argv) {
             std::cerr << "backend=" << backend.name() << '\n';
             std::int64_t done = 0;
             while (!stopping && (steps == 0 || done < steps)) {
-                if (auto s = runtime.step(subject, cogg::wall_now())) {
+                if (auto s = runtime.step(subject, cogg::wall_now(), context)) {
                     ++done;
                     const auto stats = backend.stats();
                     std::cout << cogg::json({{"subject", subject}, {"tick", s->tick}, {"head", s->head},
@@ -186,6 +200,10 @@ int main(int argc, char** argv) {
                             {"detail", stats.checkpoint_detail}}},
                         {"maintenance_error", runtime.maintenance_error()}}).dump() << std::endl;
                     if (release) backend.release_context();
+                } else if (runtime.last_abstention()) {
+                    std::cout << cogg::json({{"status", "abstained"}, {"subject", subject},
+                        {"outcome", cogg::outcome_json(*runtime.last_abstention())}}).dump() << std::endl;
+                    return 4;
                 } else if (!once) std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                 if (once) break;
             }

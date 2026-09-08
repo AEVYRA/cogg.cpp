@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
             LlamaBackend backend(options);
             Runtime runtime(s, backend, wall_now);
             auto result = runtime.step("s", wall_now());
-            check(result.has_value(), "first model step missing");
+            if (!result) throw Error("first model step missing: " + (runtime.last_abstention() ? outcome_json(*runtime.last_abstention()).dump() : "no outcome"));
             tick = result->tick;
             selected_source(s);
             check(backend.stats().prompt_tokens + options.max_output_tokens <= options.context_tokens,

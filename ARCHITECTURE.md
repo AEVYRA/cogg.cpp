@@ -1,10 +1,10 @@
-> Implementation note, 2026-09-07: this document is a research roadmap.
-> Phases 0–4 mechanisms are implemented; the Phase 3 48-hour observation
-> remains a separate validation gate. See [kernel](docs/PHASE-0.md),
-> [local inference](docs/PHASE-1.md), [durable checkpoints](docs/PHASE-2.md) and
-> [temporal contract](docs/PHASE-3.md) and [memory contract](docs/PHASE-4.md). Later phases, signatures,
-> Crystal and multi-substrate cognition remain planned.
-> The original design below is preserved; its examples are not current APIs.
+> Implementation note, 2026-09-08: this document preserves the original research roadmap;
+> its examples are not current APIs. Phases 0–5 mechanisms are implemented. Phase 6
+> now supplies a bounded composition boundary: typed abstention and provenance inputs.
+> See [Phase 6](docs/PHASE-6.md) for the explicit scope revision and current API.
+> Semantic integration/claim selection belongs to the host application. The Phase 3
+> 48-hour observation and model-quality gates remain open. Crystal, signatures and
+> real perception remain planned.
 
 # cogg.cpp
 ## Persistent Cognitive Runtime for Continuous Synthetic Subjects
@@ -2174,15 +2174,21 @@ Implement:
 - routing;
 - packet normalization.
 
-## Phase 6 — Cogg integration
+## Phase 6 — Composition boundary (scope revised 2026-09-08)
 
-Implement:
+Implemented in v0.7.0:
 
-- claims;
-- disagreement graph;
-- candidate closure;
-- null;
-- additional deliberation rounds.
+- typed proposal or abstention, distinct from subject-level null;
+- durable, admission-bound non-participation receipts;
+- bounded observation/inference packets with source references;
+- explicit context bound to one head and occasion; resume across processes;
+- unchanged commit authority, attempt budgets and conflict handling.
+
+The original claims/disagreement graph/candidate closure/additional-round design
+is retained above as research context. Semantic integration and its scheduling
+are now host-level work (e.g. Physalia), not prerequisites for the cogg kernel.
+A single executor is sufficient; a process is not a unit of subject identity.
+See [the implemented contract](docs/PHASE-6.md).
 
 ## Phase 7 — Crystal/self-model
 

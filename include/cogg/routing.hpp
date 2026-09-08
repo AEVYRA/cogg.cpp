@@ -48,6 +48,7 @@ struct Route {
     millis timeout_ms = 60000;
     millis attempt_timeout_ms = 30000;
     std::function<bool()> cancelled;
+    json context = nullptr; // Explicitly bound {head, occasion, inputs}; no implicit retries on abstention.
 };
 struct RouteResult {
     std::optional<Snapshot> snapshot;

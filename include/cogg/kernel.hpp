@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <variant>
 #include <nlohmann/json.hpp>
 #include "cogg/memory.hpp"
 
@@ -48,6 +49,7 @@ struct Present {
     json temporal = json::object();
     json working_memory = nullptr; // Selected legacy keys; Snapshot remains complete.
     json memory_view = nullptr; // Frozen retrieval receipt and source-addressed deposits.
+    json inputs = json::array(); // Host-supplied evidence, frozen at admission; not memory writes.
 };
 struct MemoryWrite { std::string key; json value; };
 struct Proposal {
@@ -61,6 +63,20 @@ struct Proposal {
 Proposal parse_proposal(const json& value);
 json proposal_json(const Proposal& value);
 
+// Non-participation is neither a failed transport nor a subject-level null transition.
+struct Abstention {
+    std::string reason; // missing_input, unsupported, uncertain, refused
+    std::string detail; // Bounded diagnostic, never a user-facing answer or instruction.
+};
+using Outcome = std::variant<Proposal, Abstention>;
+Outcome parse_outcome(const json&);
+json outcome_json(const Outcome&);
+// Inputs are content-addressed host assertions, not certified observations.
+json make_input(const std::string& kind, const std::string& producer, const json& content,
+                const std::vector<std::string>& sources = {});
+void validate_inputs(const json&);
+void validate_admission_context(const json&); // null or {head, occasion, inputs}
+
 struct Attempt {
     std::string id;
     Present present;
@@ -68,7 +84,7 @@ struct Attempt {
 enum class CommitPoint { before_sql_commit, after_sql_commit };
 
 // Trusted host API. One Store connection per thread; independent connections
-// cooperate through SQLite transactions. Model adapters receive only Present.
+// cooperate through SQLite transactions. Model adapters receive an Attempt/Present, never a Store.
 class Store {
 public:
     explicit Store(const std::string& path);
@@ -84,11 +100,13 @@ public:
                                 const std::string& backend, millis now,
                                 const std::optional<MemoryPolicy>& memory_policy = std::nullopt,
                                 const std::function<bool(const Present&)>& fits = {},
-                                const json& execution = nullptr);
+                                const json& execution = nullptr, const json& context = nullptr);
     Snapshot commit(const std::string& attempt, const Proposal& proposal, millis now,
                     const std::function<void(CommitPoint)>& fault_hook = {},
                     std::optional<millis> inference_elapsed_ms = std::nullopt,
                     const json& emission = nullptr);
+    // Atomic, idempotent settlement; preserves head, memory, wake and pending occasion.
+    std::string abstain(const std::string& attempt, const Abstention&, const json& provider = json::object());
     void fail(const std::string& attempt, const std::string& reason);
     // Read-only eligibility; polling never creates an occasion or a subject tick.
     json schedule(const std::string& subject, millis now);
@@ -114,6 +132,9 @@ public:
     virtual Proposal propose(const Present&) = 0;
     // Cooperative interruption is optional; RoutedRuntime also rejects late results.
     virtual Proposal propose_attempt(const Attempt& a, millis, const std::function<bool()>&) { return propose(a.present); }
+    virtual Outcome respond_attempt(const Attempt& a, millis timeout, const std::function<bool()>& cancel) {
+        return propose_attempt(a, timeout, cancel);
+    }
     virtual json telemetry() const { return json::object(); }
     virtual std::optional<MemoryPolicy> memory_policy() const { return std::nullopt; }
     // Trusted pure host callback: complete prompt plus reserved output must fit.
@@ -128,7 +149,8 @@ public:
     // Without it, step(now) extrapolates its supplied timestamp using steady elapsed time.
     Runtime(Store& store, Backend& backend, std::function<millis()> wall_clock = {})
         : store_(store), backend_(backend), wall_clock_(std::move(wall_clock)) {}
-    std::optional<Snapshot> step(const std::string& subject, millis now);
+    std::optional<Snapshot> step(const std::string& subject, millis now, const json& context = nullptr);
+    const std::optional<Abstention>& last_abstention() const { return abstention_; }
     const std::string& maintenance_error() const { return maintenance_error_; }
 private:
     Store& store_;
@@ -136,6 +158,7 @@ private:
     std::function<millis()> wall_clock_;
     std::set<std::string> verified_;
     std::string maintenance_error_;
+    std::optional<Abstention> abstention_;
 };
 millis wall_now();
 } // namespace cogg
