@@ -29,7 +29,12 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 ## Status
 
-**Current Version: 0.8.1 (Experimental Phase 7)**
+**Current Version: 0.9.0 (Experimental host / TUI; Phase 7 kernel)**
+
+The optional [terminal interface](docs/TUI.md) adds an independent `cogg-host` and
+`cogg-tui`: durable conversation, state, timeline, memory, commit inspection and
+explicit admission controls. Closing the terminal leaves the host running.
+Build with `-DCOGG_TUI=ON`; HTTP/Ollama and self-state remain separate options.
 
 The [0.8.1 repairs](docs/REPAIRS-2026-09-08.md) preserve routing after open-task capacity failures and report self-runtime transport, timeout and cancellation outcomes accurately.
 

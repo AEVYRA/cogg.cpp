@@ -1,0 +1,112 @@
+{
+  "schema": "cogg:tui-validation/v1",
+  "date": "2026-09-08",
+  "version": "0.9.0",
+  "base_commit": "acdd4430fd5db09afee0f0d454d7d711ecb51795",
+  "kernel_changed": false,
+  "database_schema": 5,
+  "build": {
+    "platform": "Linux x86_64",
+    "compiler": "GCC 12",
+    "debug_options": [
+      "COGG_TUI",
+      "COGG_HTTP",
+      "COGG_SELF"
+    ],
+    "ftxui_commit": "5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6",
+    "core_only_release": "PASS",
+    "minimal_host_without_http_or_self": "PASS (direct compile + demo process tests)"
+  },
+  "offline": {
+    "debug_suite": {
+      "passed": 11,
+      "total": 11,
+      "seconds": 54.21
+    },
+    "asan_ubsan_suite": {
+      "passed": 11,
+      "total": 11,
+      "seconds": 120.24
+    },
+    "final_tui_retest": {
+      "note": "After the local Ctrl+C handling fix and extra SIGKILL regression; unchanged kernel tests were not repeated.",
+      "debug_seconds": 7.11,
+      "asan_ubsan_seconds": 10.02,
+      "status": "PASS"
+    },
+    "invariants": [
+      "paused startup; durable pending and idempotent messages",
+      "committed speech only; reflection/null remain diagnostic",
+      "legacy CLI text messages projected",
+      "bounded memory query and verified commit inspection",
+      "real PTY Cyrillic input, Ctrl+C clear, resize and Ctrl+Q disconnect",
+      "80x24 and wide-screen renders; terminal escape sanitization",
+      "client exit leaves host running",
+      "IPC responsive during inference; queued input and pause before next admission",
+      "model-requested scheduled wake commits without a TUI",
+      "abstention leaves head/occasion intact and pauses retries; explicit resume retries once",
+      "transport failure pauses and redacts provider body",
+      "guarded self profile cannot change without grant",
+      "SIGKILL and stale socket recovery; pending attempt resumes only after explicit control",
+      "host/database locks, old schema refusal without DB mutation, malformed/oversized IPC"
+    ]
+  },
+  "live": {
+    "executor": "deepseek",
+    "reported_model": "deepseek-v4-flash",
+    "attempts": 2,
+    "commits_after_genesis": 2,
+    "speech": "Связь работает.",
+    "speech_commit": "a00a3c06e3e6cf46d308802e728bfa3f4cb5174aec74f9ce5c3d3a427ffb37d3",
+    "speech_emission": {
+      "attempt": "32d3ee5a4a0def47b7af178c3d324e5cccf927884462681820ea76e1076e1dc6",
+      "execution": {
+        "backend": "cogg-http/v1:c42ce9fd583acbdcd981bb475bbdd0db58d562060f5ffa44f800da79ed1834ef",
+        "capabilities": {
+          "cancellation": true,
+          "checkpoint": false,
+          "exact_tokens": false,
+          "remote": true
+        },
+        "executor": "deepseek",
+        "schema": "cogg:execution/v1",
+        "session": "11ac5161694acb63afc23d80d4b8decfa571578959e2bde1037c9b37c6445972"
+      },
+      "occasion": "8361c1f15f6ae381b9309b85197fc57619c7c32e859a5507edd4042c57a0b562",
+      "parent": "12ba06fbba204623a01dee9fe57b9b148ce95ee51ff275900cc5cc0f5a584341",
+      "proposal": {
+        "kind": "speech",
+        "memory": [],
+        "text": "Связь работает.",
+        "wake_after_ms": null
+      },
+      "provider": {
+        "adapter": "chat_completions",
+        "reported_model": "deepseek-v4-flash",
+        "usage": {
+          "completion_tokens": 26,
+          "prompt_tokens": 1227
+        }
+      },
+      "schema": "cogg:emission/v1",
+      "subject": "tui-validation"
+    },
+    "final_wake_at": null,
+    "status": "PASS",
+    "host_stopped": true,
+    "scope": "Two-call transport/inbox/commit/render smoke test, not a memory or model-quality evaluation."
+  },
+  "phase3": {
+    "unit": "cogg-phase3-48h.service",
+    "status": "active / observing; tick 1, waiting_external",
+    "manifest_sha256": "84c4aa7642241592d217ca72ca1c433ddaa1b8f01131c8fe91d7bbe716c81de3",
+    "pinned_database_opened": false
+  },
+  "limits": [
+    "Linux and one subject/executor per host",
+    "small-subject full-history projection; bounded response is not bounded DB scan cost",
+    "no native llama.cpp host adapter, multimodal organs, causal graph or subject selector",
+    "no Phase 6 evidence editor or Phase 7 grant editor",
+    "no general model-quality claim"
+  ]
+}
