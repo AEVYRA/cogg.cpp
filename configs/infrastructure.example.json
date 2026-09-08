@@ -1,0 +1,34 @@
+{
+  "executors": {
+    "local-gpu": {
+      "kind": "ollama",
+      "base_url": "http://127.0.0.1:11434",
+      "model": "qwen2.5:3b-instruct-q4_K_M",
+      "context_tokens": 4096,
+      "threads": 2
+    },
+    "mac": {
+      "kind": "ollama",
+      "base_url": "http://127.0.0.1:11435",
+      "model": "REPLACE_WITH_INSTALLED_MAC_MODEL",
+      "context_tokens": 4096,
+      "threads": 4
+    },
+    "deepseek": {
+      "kind": "chat_completions",
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-v4-flash",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "max_output_tokens": 128,
+      "request_options": {"thinking": {"type": "disabled"}, "temperature": 0}
+    },
+    "kimi": {
+      "kind": "chat_completions",
+      "base_url": "https://api.kimi.com/coding/v1",
+      "model": "k3",
+      "api_key_env": "KIMI_API_KEY",
+      "max_output_tokens": 512,
+      "request_options": {"reasoning_effort": "low"}
+    }
+  }
+}

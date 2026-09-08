@@ -42,6 +42,8 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-phases).
 
+For local GPU, LAN/Mac and API executor preparation, see [infrastructure probes](docs/INFRASTRUCTURE.md). Phase 5 runtime integration remains pending.
+
 ## Build Instructions
 
 **Dependencies:** C++20 compiler, CMake 3.20+, SQLite3 with FTS5, OpenSSL (`libcrypto`), and `nlohmann/json` 3.10+.
