@@ -88,8 +88,16 @@ They can execute without an attached terminal after `/resume`. Any non-success
 other than a normal scheduler wait pauses further admissions. In particular,
 abstention leaves the occasion pending and does **not** silently invoke the
 model again. `/resume` is the explicit retry decision. New messages queue behind
-that occasion; this first client cannot attach Phase 6 evidence to it or skip it.
-A request needing new evidence requires the existing host API/composition layer.
+that occasion. `/evidence TEXT` retries a paused external occasion with an explicit
+operator report, bound to the displayed head and occasion. The report is not a
+certified observation or an automatic web search; include the source and when it
+was checked. Watch mode disables this operation. The client does not skip events.
+
+Evidence is staged in host memory and becomes durable in the attempt inputs at
+admission. A restart before admission discards staging; the acknowledgement says
+`durable:false`. It applies to one attempt only. Stale bindings are rejected;
+self-state subjects use an exact read-only grant, with no profile/commitment
+permissions. Subsequent ordinary messages do not silently inherit this packet.
 
 With an existing genesis `self.profile`, `COGG_SELF=ON` routes each attempt
 through `SelfRuntime` with read-only self access. Ordinary deposits remain
@@ -111,6 +119,7 @@ subjects remain with the [Phase 7 host API/example](PHASE-7.md).
 | `/state` | Committed state, scheduler and separate host status |
 | `/since [tick]` | Commit summaries after the connection tick, or an explicit tick |
 | `/why-awake` | Current occasion/schedule and last committed wake plan |
+| `/evidence TEXT` | Retry the paused external request with a bound operator report |
 | `/resume`, `/pause` | Host admission controls, recorded in the operator audit |
 | PgUp / PgDn | Scroll one page, including long memory/record views |
 | Ctrl+C | Clear local input; does not interrupt the host |
@@ -118,7 +127,8 @@ subjects remain with the [Phase 7 host API/example](PHASE-7.md).
 
 UTF-8 input/output, Cyrillic and resize are exercised in a real PTY. At 100+
 columns the state sidebar is visible; 80×24 keeps the conversation and compact
-state header. Terminal palette colors are used without a forced background.
+state header, including the executor name and an explicit echo-only demo label.
+A paused host or abstention reason is also shown below the conversation. Terminal palette colors are used without a forced background.
 Smaller windows remain operable but may show very little content.
 
 A subject message is shown only when a **committed speech proposal** exists.
@@ -145,7 +155,7 @@ One JSON object plus newline in each direction; one request per connection:
 
 Responses are `{protocol, ok, data}` or `{protocol, ok:false, error}`. Operations
 are `snapshot`, `send`, `pause`, `resume`, `inspect`, `memory`, `since`,
-`why-awake`. The CLI mode uses the same protocol:
+`why-awake`, `evidence` (requires `head`, `occasion`, `text`). The CLI mode uses the same protocol:
 
 ```sh
 ./build/cogg-tui --socket /private/directory/host.sock \
@@ -192,7 +202,7 @@ own head/time; they can advance while that snapshot is being displayed.
 
 Multi-subject selection, event streaming/subscriptions, rich causal graphs,
 organs/vision, operator `/wake`, durable subject suspend semantics, model
-switching inside the UI, Phase 6 evidence/grant editors, native KV/GPU telemetry,
+switching inside the UI, rich evidence collection, grant editors, native KV/GPU telemetry,
 Windows/macOS adapters and full Crystal remain follow-up work. No placeholders
 pretend those mechanisms already exist. `/since` uses real commits, not a
 model-invented summary or a persisted "last visit" receipt.
@@ -212,6 +222,20 @@ A separate bounded live DeepSeek smoke test made two attempts (creation + user
 message), committed “Связь работает.”, rendered the saved speech, then stopped
 the API host. It is a transport/UI check, not an intelligence benchmark.
 The separate pinned Phase 3 unit remained active with its manifest unchanged.
+
+### First-use repair
+
+A paused echo fixture could look like an unresponsive chat, especially with the
+executor sidebar hidden at 80 columns. The compact header now names the executor
+and labels demo as echo-only. A paused host displays the next action; abstention
+reason/detail appears under the conversation as a host diagnostic, never speech.
+
+The new explicit operator-report path was tested with plain and guarded subjects:
+missing-input abstention → bound evidence → committed speech on the same occasion;
+stale bindings and watch-mode mutations are rejected, and the admitted input ID
+is preserved in history. Updated TUI process tests passed Debug (7.50 s) and
+ASan/UBSan (10.41 s); the kernel was unchanged. This is manual evidence handoff,
+not an automatic browsing capability.
 
 ## Provenance
 

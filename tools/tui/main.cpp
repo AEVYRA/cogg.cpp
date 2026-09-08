@@ -29,6 +29,7 @@ const std::string help =
     "/inspect [full commit ID]   verified record, default current head\n"
     "/since [tick]   commits since connection, or an explicit tick\n"
     "/why-awake  actual occasion and last committed wake plan\n"
+    "/evidence TEXT   retry the paused request with an operator report\n"
     "/resume     allow execution (also explicitly retries a pending failure)\n"
     "/pause      stop new admissions; current inference may still commit\n"
     "/quit       disconnect; the host continues running\n\n"
@@ -122,9 +123,22 @@ Element layout(const View& v, Element input, int width, Box& content_box) {
             paragraph(value(h.at("last"))), paragraph(value(h.at("error"))), filler(), paragraph("Host state and committed subject state are separate.") | dim};
         middle = hbox({content, vbox(std::move(state)) | size(WIDTH, EQUAL, 28) | border});
     }
+    std::string notice = v.notice, executor;
+    if (!v.snapshot.is_null()) {
+        const auto& host = v.snapshot.at("host");
+        executor = value(host.at("executor")) + (host.at("executor") == "demo" ? " (echo only)" : "");
+        if (v.connected && host.at("paused") == true) {
+            notice = "Host paused: queued messages wait. /resume to process; F2 for diagnostics.";
+            const auto& attempts = v.snapshot.at("attempts");
+            if (!attempts.empty() && attempts.back().contains("abstention")) {
+                const auto& a = attempts.back().at("abstention");
+                notice = "Executor abstained (" + value(a.at("reason")) + "): " + value(a.at("detail")) + " · /evidence TEXT or F2";
+            }
+        }
+    }
     std::string tick = v.snapshot.is_null() ? "" : "tick " + value(v.snapshot.at("tick")) + " · " + value(v.snapshot.at("lifecycle")) + " · ";
-    return vbox({hbox(std::move(title)), text(" " + tick + (v.watch ? "watching" : "talk") + " · F1 help") | dim,
-        middle | flex, paragraph(" " + safe(v.error.empty() ? v.notice : v.error)) | (v.error.empty() ? dim : color(Color::Red)),
+    return vbox({hbox(std::move(title)), text(" " + tick + (v.watch ? "watching" : "talk") + " · " + executor + " · F1 help") | dim,
+        middle | flex, paragraph(" " + safe(v.error.empty() ? notice : v.error)) | (v.error.empty() ? dim : color(Color::Red)),
         hbox({text(v.watch ? " watch > " : " > ") | accent, input | flex}) | border,
         text(" F2 timeline  F3 memory  F4 inspect  F5 talk/watch  PgUp/Dn  Ctrl+Q exit") | dim});
 }
@@ -146,7 +160,7 @@ int main(int argc, char** argv) {
         if (socket.empty()) throw std::runtime_error("--socket PATH is required");
         if (!single.is_null()) {
             const auto op = single.value("op", "");
-            if (watch && (op == "send" || op == "pause" || op == "resume")) throw std::runtime_error("watch mode is read-only");
+            if (watch && (op == "send" || op == "pause" || op == "resume" || op == "evidence")) throw std::runtime_error("watch mode is read-only");
             std::cout << ui::request(socket, single).dump(2) << '\n'; return 0;
         }
         View view; view.watch = watch; Box content_box;
@@ -188,9 +202,16 @@ int main(int argc, char** argv) {
             if (op == "help") view.mode = "help";
             else if (op == "talk" || op == "watch") { view.watch = op == "watch"; view.mode = "talk"; }
             else if (op == "timeline" || op == "state") view.mode = op;
-            else if (op == "memory" || op == "inspect" || op == "since" || op == "why-awake" || op == "pause" || op == "resume") {
-                if (view.watch && (op == "pause" || op == "resume")) { view.error = "Watch mode: host controls disabled."; return; }
+            else if (op == "memory" || op == "inspect" || op == "since" || op == "why-awake" || op == "pause" || op == "resume" || op == "evidence") {
+                if (view.watch && (op == "pause" || op == "resume" || op == "evidence")) { view.error = "Watch mode: host controls disabled."; return; }
                 json req = {{"op", op}};
+                if (op == "evidence") {
+                    if (!view.connected || arg.empty() || arg.size() > 8192 || view.snapshot.at("schedule").at("occasion").is_null()) {
+                        view.error = "Use /evidence TEXT for a connected, paused pending request (max 8192 bytes)."; return;
+                    }
+                    req["head"] = view.snapshot.at("head");
+                    req["occasion"] = view.snapshot.at("schedule").at("occasion").at("id"); req["text"] = arg;
+                }
                 if (op == "memory") req["query"] = arg;
                 if (op == "inspect") req["id"] = arg;
                 if (op == "since") {

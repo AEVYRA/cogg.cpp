@@ -91,6 +91,7 @@ struct Control {
     std::mutex mutex;
     bool paused = true, running = false;
     std::string last = "started paused", error;
+    json context = nullptr, grant = nullptr; // Explicit one-attempt operator evidence, volatile until admission.
 };
 json commit_summary(const json& row) {
     const auto& b = row.at("body");
@@ -216,22 +217,26 @@ int main(int argc, char** argv) {
                     bool enabled;
                     { std::lock_guard lock(control.mutex); enabled = !control.paused; }
                     if (enabled && engine.schedule(o.subject, wall_now()).at("status") == "ready") {
-                        { std::lock_guard lock(control.mutex); if (control.paused) continue; control.running = true; }
+                        json context, grant;
+                        { std::lock_guard lock(control.mutex); if (control.paused) continue; control.running = true;
+                          context = std::move(control.context); grant = std::move(control.grant);
+                          control.context = control.grant = nullptr; }
                         auto cancelled = [&] { return stopped || token.stop_requested(); };
                         std::string status, maintenance;
 #ifdef COGG_SELF
                         if (guarded) {
                             SelfRuntime self(engine, *backend, execution);
-                            auto result = self.step(o.subject, wall_now(), nullptr, json::array(), 60000, cancelled);
+                            auto result = self.step(o.subject, wall_now(), grant, context.is_null() ? json::array() : context.at("inputs"), 60000, cancelled);
                             status = result.status; maintenance = result.maintenance_error;
                         } else
 #endif
                         {
-                            Route route; route.executors = {executor}; route.allow_remote = o.remote;
+                            Route route; route.executors = {executor}; route.allow_remote = o.remote; route.context = context;
                             route.timeout_ms = route.attempt_timeout_ms = 60000; route.cancelled = cancelled;
                             auto result = runtime.step(o.subject, route, wall_now()); status = result.status; maintenance = result.maintenance_error;
                         }
                         std::lock_guard lock(control.mutex); control.running = false; control.last = status; control.error = maintenance;
+                        if (status == "waiting" && !context.is_null()) { control.context = context; control.grant = grant; }
                         // No invisible retries/billing loop on a still-pending occasion.
                         if (status != "committed" && status != "waiting") control.paused = true;
                     }
@@ -258,6 +263,29 @@ int main(int argc, char** argv) {
                     const auto text = req.at("text").get<std::string>(), key = req.at("key").get<std::string>();
                     require(!text.empty() && text.size() <= 8192 && !key.empty() && key.size() <= 128, "message/key length invalid");
                     data = {{"occasion", store.submit(o.subject, "tui:" + key, {{"type", "message"}, {"text", text}}, wall_now())}};
+                } else if (op == "evidence") {
+                    std::lock_guard lock(control.mutex);
+                    require(control.paused && !control.running && control.last != "worker stopped", "pause the host and wait for inference before supplying evidence");
+                    const auto text = req.at("text").get<std::string>();
+                    require(!text.empty() && text.size() <= 8192, "evidence must be 1..8192 UTF-8 bytes");
+                    const auto schedule = store.schedule(o.subject, wall_now());
+                    require(!schedule.at("occasion").is_null() && schedule.at("occasion").at("kind") == "external", "evidence requires a pending external occasion");
+                    require(req.at("head") == schedule.at("head") && req.at("occasion") == schedule.at("occasion").at("id"), "stale evidence binding; refresh the pending request");
+                    auto input = make_input("observation", "cogg:operator/v1", {{"kind", "operator_report"}, {"text", text}});
+                    json context = {{"head", req.at("head")}, {"occasion", req.at("occasion")}, {"inputs", json::array({input})}};
+                    validate_admission_context(context);
+                    json grant = nullptr;
+#ifdef COGG_SELF
+                    if (guarded) {
+                        const auto view = inspect_self(store, o.subject);
+                        require(view.at("head") == context.at("head"), "subject advanced while binding evidence");
+                        grant = self_grant(view, context.at("occasion")); // Bound read-only permissions, never self writes.
+                    }
+#endif
+                    log_operator("evidence-stage:" + input.at("id").get<std::string>());
+                    control.context = context; control.grant = grant; control.paused = false;
+                    data = {{"status", "staged"}, {"input", input.at("id")}, {"durable", false},
+                        {"note", "one retry with operator-supplied evidence; receipt becomes durable at admission; restart before admission discards staging"}};
                 } else if (op == "pause" || op == "resume") {
                     std::lock_guard lock(control.mutex);
                     require(control.last != "worker stopped", "worker stopped; restart host after inspecting error");

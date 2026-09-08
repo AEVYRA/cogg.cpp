@@ -84,6 +84,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         proposal = {'kind': 'null', 'text': '', 'memory': [], 'wake_after_ms': None}
         if message == 'abstain':
             proposal = {'kind': 'abstain', 'reason': 'missing_input', 'detail': 'Camera observation required'}
+            report = next((x for x in present['inputs'] if x['body']['producer'] == 'cogg:operator/v1'), None)
+            if report:
+                proposal = {'kind': 'speech', 'text': 'From operator report: ' + report['body']['content']['text'], 'memory': [], 'wake_after_ms': None}
         elif message == 'self-write':
             proposal.update(memory=[{'key': 'self.profile', 'value': {'schema': 'cogg:self/v1', 'revision': 1, 'data': {'name': 'unauthorized'}}}])
         elif message == 'reflect':
@@ -265,6 +268,22 @@ try:
             eventually(lambda: len(requests) == count + 1)
             eventually(lambda: rpc(sock, 'snapshot')['host']['paused'])
             assert rpc(sock, 'snapshot')['head'] == head
+            s = rpc(sock, 'snapshot')
+            rendered = run(TUI, '--socket', sock, '--snapshot', 80, 24)
+            assert b'Executor abstained' in rendered and b'missing_input' in rendered
+            evidence = {'op': 'evidence', 'head': head, 'occasion': s['schedule']['occasion']['id'], 'text': 'cat lies on a cushion'}
+            count = len(requests)
+            run(TUI, '--socket', sock, '--request', json.dumps({**evidence, 'head': '0' * 64}), code=2)
+            run(TUI, '--socket', sock, '--watch', '--request', json.dumps(evidence), code=2)
+            assert len(requests) == count
+            staged = rpc(sock, 'evidence', **{k: v for k, v in evidence.items() if k != 'op'})
+            assert staged['status'] == 'staged' and staged['durable'] is False
+            eventually(lambda: rpc(sock, 'snapshot')['tick'] == 7)
+            assert rpc(sock, 'snapshot')['conversation'][-1]['text'] == 'From operator report: cat lies on a cushion'
+            admitted = json.loads(run(CLI, 'inspect', db, 'subject'))['attempts'][-1]['body']
+            assert admitted['inputs'][0]['id'] == staged['input']
+            assert admitted['inputs'][0]['body']['content']['kind'] == 'operator_report'
+            assert admitted['parent'] == head and admitted['occasion'] == evidence['occasion']
             stop(p)
             run(CLI, 'verify', db, 'subject')
             p, db, sock = start(root, 'transport', config)
@@ -298,6 +317,13 @@ try:
             rpc(sock, 'resume')
             eventually(lambda: rpc(sock, 'snapshot')['tick'] == 1)
             assert rpc(sock, 'memory')['self']['profile']['data']['name'] == 'kept'
+            rpc(sock, 'send', key='need-input', text='abstain')
+            eventually(lambda: rpc(sock, 'snapshot')['host']['paused'])
+            s = rpc(sock, 'snapshot')
+            rpc(sock, 'evidence', head=s['head'], occasion=s['schedule']['occasion']['id'], text='cat lies on a cushion')
+            eventually(lambda: rpc(sock, 'snapshot')['tick'] == 2)
+            assert requests[-1][1]['inputs'][0]['body']['producer'] == 'cogg:operator/v1'
+            assert requests[-1][1]['inputs'][-1]['body']['producer'] == 'cogg:self/v1'
             head = rpc(sock, 'snapshot')['head']
             rpc(sock, 'send', key='write', text='self-write')
             eventually(lambda: rpc(sock, 'snapshot')['host']['paused'])
