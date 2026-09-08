@@ -17,6 +17,7 @@ using json = nlohmann::json;
 using millis = std::int64_t;
 
 struct Error : std::runtime_error { using std::runtime_error::runtime_error; };
+struct ContextOverflow : Error { using Error::Error; };
 struct Conflict : Error { using Error::Error; };
 struct Limits {
     millis min_wake_ms = 30000;
@@ -82,10 +83,12 @@ public:
     std::optional<Attempt> admit(const std::string& subject,
                                 const std::string& backend, millis now,
                                 const std::optional<MemoryPolicy>& memory_policy = std::nullopt,
-                                const std::function<bool(const Present&)>& fits = {});
+                                const std::function<bool(const Present&)>& fits = {},
+                                const json& execution = nullptr);
     Snapshot commit(const std::string& attempt, const Proposal& proposal, millis now,
                     const std::function<void(CommitPoint)>& fault_hook = {},
-                    std::optional<millis> inference_elapsed_ms = std::nullopt);
+                    std::optional<millis> inference_elapsed_ms = std::nullopt,
+                    const json& emission = nullptr);
     void fail(const std::string& attempt, const std::string& reason);
     // Read-only eligibility; polling never creates an occasion or a subject tick.
     json schedule(const std::string& subject, millis now);
@@ -109,6 +112,9 @@ public:
     virtual ~Backend() = default;
     virtual std::string name() const = 0;
     virtual Proposal propose(const Present&) = 0;
+    // Cooperative interruption is optional; RoutedRuntime also rejects late results.
+    virtual Proposal propose_attempt(const Attempt& a, millis, const std::function<bool()>&) { return propose(a.present); }
+    virtual json telemetry() const { return json::object(); }
     virtual std::optional<MemoryPolicy> memory_policy() const { return std::nullopt; }
     // Trusted pure host callback: complete prompt plus reserved output must fit.
     virtual bool context_fits(const Present&) const { return true; }

@@ -1,0 +1,183 @@
+{
+  "schema": "cogg:phase5-validation/v1",
+  "date": "2026-09-08",
+  "base_commit": "83acf3eb861f2aad56319b91efef5fa23f3e9da5",
+  "http_adapter_sha256": "2cc6ab6a4255c170945d15cfda5064d1ee5f056bdce4f72b64585b9c90b481e9",
+  "live_cli_sha256": "c975511b91cd9704c2e8260bdd2794e54e2dec5a05084816516b48acb2d8b5d1",
+  "continuity": {
+    "schema": "cogg:phase5-smoke/v1",
+    "scope": "Four synthetic transitions, fresh CLI processes, one subject; no proof of general memory quality or model identity.",
+    "steps": [
+      {
+        "executor": "local-gpu",
+        "tick": 1,
+        "head": "58d67987b9149e370fd2dd02e2a99bad92155b1d7508fa87525a393b01b4b5d6",
+        "parent": "cb6b3623f12a3199b7f3bb2eaf85e9234482e3ff8d6f05918fa715ae4981a6d9",
+        "attempt": "e2d384dfa78558a94d63f3bafd9a281505be7f4fe7a6e4b94be3849cc5a29e3e",
+        "backend": "cogg-http/v1:4f8bfc0bd82fae8f36419c9036d7e5315c33efed805e0eed5fd6a55266348a7b",
+        "session": "2a34fe5adf3d98400dffe093225efa2bd5fbc96833adc864ada50de3d975c079",
+        "provider": {
+          "adapter": "ollama",
+          "reported_model": "qwen2.5:3b-instruct-q4_K_M",
+          "usage": {
+            "completion_tokens": 26,
+            "prompt_tokens": 1062
+          }
+        },
+        "elapsed_seconds": 6.105,
+        "answer_pass": true
+      },
+      {
+        "executor": "deepseek",
+        "tick": 2,
+        "head": "2f9b01a7d7d3d33dc4884fd3f692de6293656180527d7442053e72108cc2d685",
+        "parent": "58d67987b9149e370fd2dd02e2a99bad92155b1d7508fa87525a393b01b4b5d6",
+        "attempt": "bf797933892fb27a56dde36a4b8bc3f57b8f1ccfeb353e27a5bfc9a7c006c546",
+        "backend": "cogg-http/v1:bed0107003e33855a51752caaeddc1314fc1fbe0ba26d61b5e9f806915a87769",
+        "session": "ee5af5605549b3ecd668d2742bc98c3dd1fb6bf9f3a153050dd0bf649291a796",
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "deepseek-v4-flash",
+          "usage": {
+            "completion_tokens": 25,
+            "prompt_tokens": 1070
+          }
+        },
+        "elapsed_seconds": 0.988,
+        "answer_pass": true
+      },
+      {
+        "executor": "kimi",
+        "tick": 3,
+        "head": "c6ff0685801ff39b2cb4022c1915cb530b59647c9dbd675ea2dd0b4ca0c8a518",
+        "parent": "2f9b01a7d7d3d33dc4884fd3f692de6293656180527d7442053e72108cc2d685",
+        "attempt": "9b86a028af0fd7f1ad3c87a1df675f5ec0feed4a1a28c078dd4153ec79f99333",
+        "backend": "cogg-http/v1:e76296220a21d2d82019e93da7fbbbe4aab755fd12244bf47bbdd5b267cefdf0",
+        "session": "92c67fde662c0d605dc68433cb6baa04df59a2c6ebacf407f1291f2ce1f604e7",
+        "provider": {
+          "adapter": "chat_completions",
+          "reported_model": "k3",
+          "usage": {
+            "completion_tokens": 97,
+            "prompt_tokens": 1130
+          }
+        },
+        "elapsed_seconds": 4.806,
+        "answer_pass": true
+      },
+      {
+        "executor": "local-gpu",
+        "tick": 4,
+        "head": "62ae8096d16263693fd178cb15d54bf38d75c812c8fe9b5705435e89bcb2733f",
+        "parent": "c6ff0685801ff39b2cb4022c1915cb530b59647c9dbd675ea2dd0b4ca0c8a518",
+        "attempt": "3a2dd14b4b8cbe4e78867f801f1e999f7fb96e4e10eba6f0f9dea732679b7fc4",
+        "backend": "cogg-http/v1:4f8bfc0bd82fae8f36419c9036d7e5315c33efed805e0eed5fd6a55266348a7b",
+        "session": "3e26b93b24b6a136419eac38fe262d94d8fb57181f063d760d55f4820c9af8b9",
+        "provider": {
+          "adapter": "ollama",
+          "reported_model": "qwen2.5:3b-instruct-q4_K_M",
+          "usage": {
+            "completion_tokens": 24,
+            "prompt_tokens": 1241
+          }
+        },
+        "elapsed_seconds": 6.005,
+        "answer_pass": true
+      }
+    ],
+    "chain_pass": true,
+    "memory_pass": true,
+    "failure": null,
+    "distinct_qwen_sessions": true,
+    "passed": true
+  },
+  "fallback": {
+    "schema": "cogg:phase5-fallback/v1",
+    "scope": "Synthetic HTTP 503 followed by one real DeepSeek completion on the existing subject",
+    "passed": true,
+    "tick": 5,
+    "attempts": [
+      {
+        "attempt": "ba22af0bc9501b6670d4437a49220b16cdedb982c79e247a1c0460b36136f424",
+        "executor": "outage",
+        "status": "transport_failed"
+      },
+      {
+        "attempt": "978d411389c903cf19c7950bf186ecbb481b8c431df454da9e04c63605cf66f3",
+        "executor": "deepseek",
+        "status": "committed"
+      }
+    ],
+    "head": "8c6b00e5f8c278f6b603f007de4a5ba1784bb418867f472ca60304f6a5c66f43",
+    "parent": "62ae8096d16263693fd178cb15d54bf38d75c812c8fe9b5705435e89bcb2733f",
+    "provider": {
+      "adapter": "chat_completions",
+      "reported_model": "deepseek-v4-flash",
+      "usage": {
+        "completion_tokens": 25,
+        "prompt_tokens": 1069
+      }
+    },
+    "same_occasion": true,
+    "same_parent": true
+  },
+  "earlier_findings": [
+    {
+      "probe": "initial JSON mode",
+      "chain_pass": true,
+      "answer_passes": [
+        true,
+        true,
+        true,
+        false
+      ],
+      "finding": "Final Qwen returned reflection and wrote an extra placeholder key instead of speech; expected access_code remained present in its admitted context. Not a full pass."
+    },
+    {
+      "probe": "revised prompt without schema",
+      "finding": "Qwen copied input memory shape and an unsupported deposits field into its proposal. Two rejected attempts (including a local diagnostic replay), zero commits."
+    },
+    {
+      "probe": "over-constrained Ollama schema",
+      "finding": "Local server rejected generated grammar with HTTP 400. Simplified provider schema to output shape; all limits and cross-field constraints remain enforced by cogg."
+    }
+  ],
+  "validation": {
+    "debug_suites": {
+      "passed": 7,
+      "total": 7
+    },
+    "asan_ubsan_suites": {
+      "passed": 7,
+      "total": 7
+    },
+    "final_routing_http_debug": {
+      "passed": 2,
+      "total": 2
+    },
+    "final_routing_http_asan_ubsan": {
+      "passed": 2,
+      "total": 2
+    },
+    "core_only_build": "passed; real CLI transition and verify, no dynamic libcurl dependency",
+    "schema_3_migration": "passed; old commit bytes and hashes preserved",
+    "old_binary_schema_4_rejection": "passed",
+    "full_libllama_suite": {
+      "passed": 11,
+      "total": 11,
+      "elapsed_seconds": 614.73
+    },
+    "final_routing_http_release": {
+      "passed": 2,
+      "total": 2,
+      "elapsed_seconds": 1.73
+    }
+  },
+  "limits": [
+    "Small synthetic mechanism probe, not a general model-quality or memory benchmark.",
+    "No claim of tokenizer/KV equivalence across providers.",
+    "Mac explicitly postponed.",
+    "Pinned Phase 3 48-hour observation unchanged and still open."
+  ],
+  "release_cli_sha256": "60f879cc7bb3643cd18fd254d71ddbda8bac6673aaffd61670829a062535bf85"
+}

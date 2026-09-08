@@ -1,5 +1,6 @@
 #include "cogg/kernel.hpp"
 #include "memory_internal.hpp"
+#include "cogg/routing.hpp"
 #include <sqlite3.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -314,7 +315,7 @@ Store::Store(const std::string& path) : impl_(std::make_unique<Impl>()) {
     Transaction tx(db);
     {
         Statement q(db, "PRAGMA user_version"); q.row();
-        require(q.number(0) == 0 || q.number(0) == 1 || q.number(0) == 2 || q.number(0) == 3, "unsupported database version");
+        require(q.number(0) == 0 || q.number(0) == 1 || q.number(0) == 2 || q.number(0) == 3 || q.number(0) == 4, "unsupported database version");
     }
     sql(db, R"SQL(
 CREATE TABLE IF NOT EXISTS subjects(
@@ -336,7 +337,7 @@ CREATE TABLE IF NOT EXISTS commits(
  id TEXT PRIMARY KEY, subject TEXT NOT NULL REFERENCES subjects(id),
  tick INTEGER NOT NULL, body TEXT NOT NULL, UNIQUE(subject,tick));
 PRAGMA application_id=1129269063;
-PRAGMA user_version=3;
+PRAGMA user_version=4;
 )SQL");
     detail::memory_schema(db);
     tx.commit();
@@ -348,7 +349,7 @@ void Store::create(const std::string& subject, Limits limits, millis now, const 
     check_text(subject, 128, "subject"); check_time(now);
     auto l = limits_json(limits);
     Transaction tx(impl_->db);
-    json genesis = {{"schema", 3}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
+    json genesis = {{"schema", 4}, {"subject", subject}, {"tick", 0}, {"parent", nullptr},
                     {"created_at", now}, {"nonce", random_id()}, {"limits", l},
                     {"memory", initial_memory}, {"wake_at", nullptr}};
     const auto id = hash(genesis);
@@ -370,7 +371,9 @@ std::string Store::submit(const std::string& subject, const std::string& key,
 }
 std::optional<Attempt> Store::admit(const std::string& subject, const std::string& backend, millis now,
                                     const std::optional<MemoryPolicy>& memory_policy,
-                                    const std::function<bool(const Present&)>& fits) {
+                                    const std::function<bool(const Present&)>& fits, const json& execution) {
+    validate_execution(execution);
+    require(execution.is_null() || execution.at("backend") == backend, "execution backend mismatch");
     check_time(now); check_text(backend, 200, "backend");
     auto* db = impl_->db;
     Transaction tx(db);
@@ -397,10 +400,10 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
     bool unsettled = prior.number(0) > 0;
     Statement account(db, "UPDATE subjects SET accounting_wall=? WHERE id=?");
     account.bind(1, now).bind(2, subject).done();
-    json body = {{"schema", 3}, {"nonce", random_id()}, {"subject", subject},
+    json body = {{"schema", 4}, {"nonce", random_id()}, {"subject", subject},
                  {"parent", s.head}, {"tick", s.tick}, {"occasion", o.id},
                  {"backend", backend}, {"admitted_at", now}, {"prior_unsettled", unsettled},
-                 {"wall_observed_at", observed}, {"temporal", temporal}};
+                 {"wall_observed_at", observed}, {"temporal", temporal}, {"execution", execution}};
     Present present{s, o, unsettled, temporal};
     if (memory_policy) {
         auto policy = *memory_policy;
@@ -419,7 +422,7 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
 }
 
 Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, millis now,
-                       const std::function<void(CommitPoint)>& hook, std::optional<millis> inference_elapsed_ms) {
+                       const std::function<void(CommitPoint)>& hook, std::optional<millis> inference_elapsed_ms, const json& emission) {
     if (inference_elapsed_ms) check_time(*inference_elapsed_ms);
     check_time(now); const auto p = proposal_json(proposal);
     auto* db = impl_->db;
@@ -429,6 +432,7 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     if (aq.text(1) != "reserved") throw Conflict("attempt already settled");
     const auto a = json::parse(aq.text(0));
     require(hash(a) == attempt, "attempt hash mismatch");
+    validate_emission(emission, attempt, a, p);
     const auto subject = a.at("subject").get<std::string>();
     auto s = impl_->snapshot(subject);
     if (s.head != a.at("parent").get<std::string>() || s.tick != a.at("tick").get<std::int64_t>()) {
@@ -454,11 +458,11 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     auto limits = impl_->config(subject);
     const auto plan = impl_->wake_plan(subject, limits, proposal, now);
     const auto wake = read_time(plan.at("granted_at"));
-    json body = {{"schema", 3}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
+    json body = {{"schema", 4}, {"subject", subject}, {"tick", tick}, {"parent", s.head},
                  {"occasion", oid}, {"attempt", attempt}, {"proposal", p},
                  {"memory", memory}, {"wake_at", optional_time(wake)}, {"committed_at", now},
                  {"wall_observed_at", observed}, {"wake_plan", plan},
-                 {"inference_elapsed_ms", optional_time(inference_elapsed_ms)}};
+                 {"inference_elapsed_ms", optional_time(inference_elapsed_ms)}, {"emission", emission}};
     auto id = hash(body);
     detail::memory_apply(db, subject, s.head, tick, id, proposal.notes);
     Statement insert(db, "INSERT INTO commits VALUES(?,?,?,?)");
@@ -537,7 +541,7 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     while (q.row()) {
         auto b = json::parse(q.text(2));
         require(q.number(1) == tick && b.at("tick") == tick && b.at("subject") == subject &&
-                (b.at("schema") == 1 || b.at("schema") == 2 || b.at("schema") == 3) && hash(b) == q.text(0), "commit integrity failure");
+                (b.at("schema") == 1 || b.at("schema") == 2 || b.at("schema") == 3 || b.at("schema") == 4) && hash(b) == q.text(0), "commit integrity failure");
         if (tick == 0) {
             committed_wall = b.at("created_at").get<millis>();
             check_time(committed_wall);
@@ -560,6 +564,8 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
             require(hash(ab) == aid && ab.at("subject") == subject && ab.at("parent") == head &&
                     ab.at("tick") == tick - 1 && ab.at("occasion") == oid && a.text(1) == "committed",
                     "attempt provenance mismatch");
+            if (b.at("schema") == 4) require(b.contains("emission"), "missing emission field");
+            validate_emission(b.value("emission", json(nullptr)), aid, ab, b.at("proposal"));
             auto p = parse_proposal(b.at("proposal"));
             for (const auto& w : p.memory) memory[w.key] = w.value;
             require(b.at("memory") == memory, "memory replay mismatch");
@@ -605,6 +611,11 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
                 b.at("parent") == attempts.text(2) && b.at("occasion") == attempts.text(3) &&
                 b.at("admitted_at") == attempts.number(4) && chain.count(attempts.text(2)) == 1 &&
                 attempts.number(4) >= previous, "admission integrity failure");
+        require(b.at("schema").is_number_integer() && b.at("schema") >= 1 && b.at("schema") <= 4, "unsupported admission schema");
+        validate_execution(b.value("execution", json(nullptr)));
+        if (b.at("schema") == 4) require(b.contains("execution"), "missing execution descriptor");
+        if (b.contains("execution") && !b.at("execution").is_null())
+            require(b.at("execution").at("backend") == b.at("backend"), "admission backend mismatch");
         const auto event = impl_->event(attempts.text(3));
         require(event.at("subject") == subject, "foreign admitted occasion");
         if (b.at("schema").get<int>() >= 2) {

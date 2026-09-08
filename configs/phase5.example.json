@@ -1,0 +1,38 @@
+{
+  "executors": {
+    "local-gpu": {
+      "kind": "ollama",
+      "base_url": "http://127.0.0.1:11434",
+      "model": "qwen2.5:3b-instruct-q4_K_M",
+      "context_tokens": 4096,
+      "threads": 2,
+      "max_output_tokens": 512,
+      "max_prompt_bytes": 10000
+    },
+    "deepseek": {
+      "kind": "chat_completions",
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-v4-flash",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "max_output_tokens": 1024,
+      "request_options": {
+        "thinking": {
+          "type": "disabled"
+        },
+        "temperature": 0
+      },
+      "max_prompt_bytes": 24576
+    },
+    "kimi": {
+      "kind": "chat_completions",
+      "base_url": "https://api.kimi.com/coding/v1",
+      "model": "k3",
+      "api_key_env": "KIMI_API_KEY",
+      "max_output_tokens": 2048,
+      "request_options": {
+        "reasoning_effort": "low"
+      },
+      "max_prompt_bytes": 24576
+    }
+  }
+}

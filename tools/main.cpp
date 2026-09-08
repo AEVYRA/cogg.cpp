@@ -1,4 +1,8 @@
 #include "cogg/kernel.hpp"
+#ifdef COGG_HTTP
+#include "cogg/http_backend.hpp"
+#endif
+#include <sstream>
 #ifdef COGG_LLAMA
 #include "cogg/llama_backend.hpp"
 #endif
@@ -42,6 +46,9 @@ void usage() {
                  "    [--tokens N] [--threads N] [--timeout-ms N] [--template NAME]\n"
                  "    [--release-context] [--once] [--internal-only]\n"
                  "    [--checkpoint-dir DIRECTORY] [--checkpoint-mib N]\n"
+                 "cogg-cli run-route DB SUBJECT CONFIG --route ID[,ID...] [--allow-remote]\n"
+                 "    [--timeout-ms N] [--attempt-timeout-ms N] [--require-exact-tokens]\n"
+                 "    [--require-checkpoint] [--require-cancellation] (one routed step)\n"
                  "cogg-cli schedule DB SUBJECT\n"
                  "cogg-cli duration DB SUBJECT FROM-COMMIT TO-COMMIT\n"
                  "cogg-cli inspect DB SUBJECT\n"
@@ -90,6 +97,44 @@ int main(int argc, char** argv) {
         } else if (command == "verify" && argc == 4) {
             store.verify(subject);
             std::cout << "verified " << subject << " tick=" << store.snapshot(subject).tick << '\n';
+        } else if (command == "run-route" && argc >= 7) {
+#ifdef COGG_HTTP
+            cogg::Route route;
+            for (int i = 5; i < argc; ++i) {
+                const std::string flag = argv[i];
+                if (flag == "--allow-remote") { route.allow_remote = true; continue; }
+                if (flag == "--require-exact-tokens") { route.require_exact_tokens = true; continue; }
+                if (flag == "--require-checkpoint") { route.require_checkpoint = true; continue; }
+                if (flag == "--require-cancellation") { route.require_cancellation = true; continue; }
+                if (++i >= argc) throw cogg::Error("missing route option value");
+                if (flag == "--route") {
+                    std::istringstream in(argv[i]); std::string id;
+                    while (std::getline(in, id, ',')) route.executors.push_back(id);
+                } else if (flag == "--timeout-ms") route.timeout_ms = number(argv[i]);
+                else if (flag == "--attempt-timeout-ms") route.attempt_timeout_ms = number(argv[i]);
+                else throw cogg::Error("unknown route option");
+            }
+            std::ifstream input(argv[4]); cogg::json config;
+            if (!input) throw cogg::Error("cannot open executor configuration");
+            input >> config;
+            cogg::Registry registry; cogg::register_http(registry, config);
+            std::signal(SIGINT, stop); std::signal(SIGTERM, stop);
+            route.cancelled = [] { return stopping != 0; };
+            cogg::RoutedRuntime runtime(store, registry, cogg::wall_now);
+            auto result = runtime.step(subject, route, cogg::wall_now());
+            cogg::json output = {{"status", result.status}, {"attempts", result.attempts}, {"maintenance_error", result.maintenance_error}};
+            if (result.snapshot) {
+                const auto& snap = *result.snapshot;
+                output["subject"] = subject; output["tick"] = snap.tick; output["head"] = snap.head;
+                output["proposal"] = store.record(snap.head).at("proposal");
+                output["emission"] = store.record(snap.head).at("emission");
+            } else output["schedule"] = store.schedule(subject, cogg::wall_now());
+            std::cout << output.dump() << std::endl;
+            if (result.status == "cancelled") return 130;
+            if (result.status != "committed" && result.status != "waiting") return 3;
+#else
+            throw cogg::Error("run-route requires a build with -DCOGG_HTTP=ON");
+#endif
         } else if (command == "run-model" && argc >= 5) {
 #ifdef COGG_LLAMA
             cogg::LlamaOptions options;

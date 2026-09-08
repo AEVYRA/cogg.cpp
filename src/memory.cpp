@@ -431,11 +431,11 @@ void project_memory(Present &p, const json &candidates, const MemoryPolicy &poli
                    policy.max_bytes &&
                (!fits || fits(p));
     };
-    need(valid(), "memory pressure: fixed context exceeds budget");
+    if (!valid()) throw ContextOverflow("memory pressure: fixed context exceeds budget");
     for (const auto &x : candidates.at("entries"))
         if (x.at("required").get<bool>()) {
             p.memory_view["items"].push_back(x.at("entry"));
-            need(valid(), "memory pressure: open tasks exceed context budget");
+            if (!valid()) throw ContextOverflow("memory pressure: open tasks exceed context budget");
         }
     // Legacy working state remains addressable as individual assignments. Sorting
     // matching keys/values first is transparent, not semantic inference.

@@ -1,8 +1,8 @@
 # Infrastructure preparation for Phase 5
 
-The existing runtime remains v0.5.0 with an in-process CPU libllama adapter.
-This page and `tools/infrastructure_smoke.py` prepare external executors; they
-are not an implementation of Phase 5 registry/routing or distributed commits.
+The runtime now has [Phase 5 registry/routing](PHASE-5.md), alongside the
+in-process CPU libllama adapter. This page and `tools/infrastructure_smoke.py`
+remain separate executor readiness probes.
 They do not read or mutate a subject database. The pinned Phase 3 observation
 retains its original binary, model, database, protocol and deadline.
 
@@ -71,8 +71,8 @@ correctness are separate observations. Its two-minute residency expired normally
 ## Mac executor
 
 The deployment Mac has not been connected yet: its known Tailscale entry is
-offline and its historical LAN address timed out on SSH/Ollama. An up-to-date
-reachable SSH destination is still required; no remote changes were made.
+offline and its historical LAN address timed out on SSH/Ollama. Mac work is explicitly postponed by Sasha (2026-09-08);
+it is not a Phase 5 acceptance blocker. No remote changes were made.
 
 Use an already available model on the Mac when possible. Inspect Apple chip,
 free memory, disk and loaded models before downloading another model. Start with

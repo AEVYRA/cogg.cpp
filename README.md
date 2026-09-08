@@ -27,7 +27,7 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 ## Status
 
-**Current Version: 0.5.0 (Experimental Phase 4)**
+**Current Version: 0.6.0 (Experimental Phase 5)**
 
 - [x] **Phase 0:** Durable kernel contract
 - [x] **Phase 1:** Local model build and inference (libllama)
@@ -35,19 +35,19 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 - [x] **Phase 3 mechanisms:** Explicit commit time and bounded model-requested scheduling
 - [ ] **Phase 3 validation:** Real 48-hour observation and state-dependent waking assessment; see [protocol](docs/PHASE-3.md)
 - [x] **Phase 4 mechanisms:** Typed deposits, bounded working context, retrieval and source-preserving compaction; [contract and evidence](docs/PHASE-4.md)
-- [ ] **Phase 5:** Multiple substrates and routing
+- [x] **Phase 5:** Heterogeneous executors, isolated sessions, bounded routing and admission-bound emissions
 - [ ] **Phase 6:** Cognitive integration and disagreement
 - [ ] **Phase 7:** Crystal / self-model
 - [ ] **Phase 8:** Multimodal perception
 
 Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-phases).
 
-For local GPU, LAN/Mac and API executor preparation, see [infrastructure probes](docs/INFRASTRUCTURE.md). Phase 5 runtime integration remains pending.
+For local GPU and API routing, see [Phase 5](docs/PHASE-5.md) and [the executor configuration](configs/phase5.example.json). Build with `-DCOGG_HTTP=ON` to enable Ollama/Chat Completions. [Infrastructure probes](docs/INFRASTRUCTURE.md) remain separate transport checks. Mac deployment is postponed.
 
 ## Build Instructions
 
 **Dependencies:** C++20 compiler, CMake 3.20+, SQLite3 with FTS5, OpenSSL (`libcrypto`), and `nlohmann/json` 3.10+.
-*Note: The runtime does not require a Python interpreter or any external model services.*
+The core runtime requires neither Python nor model services. Optional HTTP adapters require libcurl 7.85+ (`libcurl4-openssl-dev`); their offline tests use Python 3.
 
 **Debian/Ubuntu:**
 ```sh
@@ -80,10 +80,11 @@ You can run the deterministic CLI demo using the compiled binary. The parameters
 
 ## Architecture & API
 
-The project is designed to be embeddable. The core C++ API (see `include/cogg/kernel.hpp`) is separated into three main abstractions:
+The project is designed to be embeddable. The core C++ API (see `include/cogg/kernel.hpp`) separates storage, inference and coordination:
 * `cogg::Store`: Manages SQLite transactions, admission quotas, and cryptographic chain verification.
-* `cogg::Backend`: The abstract interface for model inference (currently implemented by `llama_backend.cpp`).
-* `cogg::Runtime`: The orchestrator that steps the subject forward, handling the clock and backend interaction.
+* `cogg::Backend`: The abstract interface for model inference, with native libllama and optional HTTP implementations.
+* `cogg::Runtime`: Steps the subject forward with one backend.
+* `cogg::Registry` and `cogg::RoutedRuntime`: Own executor sessions and apply explicit routes while retaining one subject history.
 
 For deeper technical dives and research notes, see the documentation in the `docs/` folder.
 
