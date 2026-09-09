@@ -1,5 +1,8 @@
 #include "protocol.hpp"
 #include "cogg/routing.hpp"
+#ifdef COGG_PERCEPTION
+#include "cogg/perception.hpp"
+#endif
 #ifdef COGG_HTTP
 #include "cogg/http_backend.hpp"
 #endif
@@ -48,7 +51,7 @@ public:
     }
 };
 struct Options {
-    std::string db, subject, socket, config, executor;
+    std::string db, subject, socket, config, executor, vision;
     bool create = false, demo = false, remote = false;
 };
 Options options(int argc, char** argv) {
@@ -62,12 +65,17 @@ Options options(int argc, char** argv) {
             require(i + 1 < argc, "missing argument for " + a); std::string v = argv[++i];
             if (a == "--db") o.db = v; else if (a == "--subject") o.subject = v;
             else if (a == "--socket") o.socket = v; else if (a == "--config") o.config = v;
-            else if (a == "--executor") o.executor = v; else throw Error("unknown option: " + a);
+            else if (a == "--executor") o.executor = v;
+            else if (a == "--vision-executor") o.vision = v; else throw Error("unknown option: " + a);
         }
     }
     require(!o.db.empty() && !o.subject.empty() && !o.socket.empty(), "required: --db FILE --subject ID --socket PATH");
     require(o.demo ? o.config.empty() && o.executor.empty() : !o.config.empty() && !o.executor.empty(),
             "choose --demo OR --config FILE --executor ID [--allow-remote]");
+    require(!o.demo || o.vision.empty(), "vision requires a configured actor");
+#ifndef COGG_PERCEPTION
+    require(o.vision.empty(), "vision requires -DCOGG_PERCEPTION=ON");
+#endif
     o.db = fs::weakly_canonical(fs::absolute(o.db)).string();
     o.socket = fs::absolute(o.socket).string();
     return o;
@@ -156,6 +164,7 @@ int main(int argc, char** argv) {
         require(db_lock.value >= 0 && ::flock(db_lock.value, LOCK_EX | LOCK_NB) == 0, "database already owned by another host");
         current_database_only(o);
         std::function<std::unique_ptr<Backend>()> factory;
+        json vision_config = nullptr;
         Capabilities caps;
         std::string executor = o.demo ? "demo" : o.executor;
         if (o.demo) factory = [] { return std::make_unique<Demo>(); };
@@ -165,7 +174,22 @@ int main(int argc, char** argv) {
             auto selected = config.at("executors").at(o.executor);
             HttpBackend probe(selected); caps = probe.capabilities();
             require(!caps.remote || o.remote, "remote executor requires --allow-remote");
-            factory = [selected] { return std::make_unique<HttpBackend>(selected); };
+            factory = [selected, enabled = !o.vision.empty()]() -> std::unique_ptr<Backend> {
+                auto actor = std::make_unique<HttpBackend>(selected);
+#ifdef COGG_PERCEPTION
+                if (enabled) return std::make_unique<ImageActor>(std::move(actor));
+#else
+                (void)enabled;
+#endif
+                return actor;
+            };
+#ifdef COGG_PERCEPTION
+            if (!o.vision.empty()) {
+                vision_config = config.at("executors").at(o.vision);
+                HttpBackend vision_probe(vision_config);
+                require(!vision_probe.capabilities().remote || o.remote, "remote vision requires --allow-remote");
+            }
+#endif
 #else
             throw Error("HTTP support not built; configure with -DCOGG_HTTP=ON");
 #endif
@@ -208,6 +232,9 @@ int main(int argc, char** argv) {
             try {
                 Store engine(o.db); Registry registry; registry.add(executor, caps, factory);
                 RoutedRuntime runtime(engine, registry, wall_now);
+#ifdef COGG_PERCEPTION
+                auto vision = vision_config.is_null() ? nullptr : std::make_unique<HttpBackend>(vision_config);
+#endif
 #ifdef COGG_SELF
                 auto backend = guarded ? factory() : nullptr;
                 auto execution = guarded ? json({{"schema", "cogg:execution/v1"}, {"executor", executor}, {"backend", backend->name()},
@@ -223,6 +250,26 @@ int main(int argc, char** argv) {
                           control.context = control.grant = nullptr; }
                         auto cancelled = [&] { return stopped || token.stop_requested(); };
                         std::string status, maintenance;
+#ifdef COGG_PERCEPTION
+                        try {
+                            const auto scheduled = engine.schedule(o.subject, wall_now());
+                            const auto& occasion = scheduled.at("occasion");
+                            if (!occasion.is_null() && occasion.at("payload").contains("image")) {
+                                require(bool(vision), "image request requires --vision-executor");
+                                auto prepared = image_context(engine, o.subject, *vision, o.db + ".media", wall_now(), 60000, cancelled);
+                                if (!context.is_null()) {
+                                    require(context.at("head") == prepared.at("head") && context.at("occasion") == prepared.at("occasion"), "stale image evidence");
+                                    for (const auto& packet : context.at("inputs")) prepared["inputs"].push_back(packet);
+                                }
+                                validate_admission_context(prepared); context = std::move(prepared);
+                                std::lock_guard lock(control.mutex);
+                                if (control.paused) { control.running = false; continue; }
+                            }
+                        } catch (const std::exception& e) {
+                            std::lock_guard lock(control.mutex); control.running = false; control.paused = true;
+                            control.last = "image_failed"; control.error = ui::excerpt(e.what(), 512); continue;
+                        }
+#endif
 #ifdef COGG_SELF
                         if (guarded) {
                             SelfRuntime self(engine, *backend, execution);
@@ -263,6 +310,19 @@ int main(int argc, char** argv) {
                     const auto text = req.at("text").get<std::string>(), key = req.at("key").get<std::string>();
                     require(!text.empty() && text.size() <= 8192 && !key.empty() && key.size() <= 128, "message/key length invalid");
                     data = {{"occasion", store.submit(o.subject, "tui:" + key, {{"type", "message"}, {"text", text}}, wall_now())}};
+                } else if (op == "image") {
+#ifdef COGG_PERCEPTION
+                    require(!o.vision.empty(), "host has no vision executor configured");
+                    const auto path = req.at("path").get<std::string>(), key = req.at("key").get<std::string>();
+                    const auto text = req.value("text", "Describe this image and remember the observation for later.");
+                    require(!path.empty() && path.size() <= 4096 && path.find('\0') == std::string::npos &&
+                            !key.empty() && key.size() <= 128 && !text.empty() && text.size() <= 8192, "invalid image request");
+                    const auto image = import_image(path, o.db + ".media");
+                    data = {{"occasion", store.submit(o.subject, "tui:" + key,
+                        {{"type", "message"}, {"text", text}, {"image", image}}, wall_now())}, {"image", image}, {"vision_executor", o.vision}};
+#else
+                    throw Error("host requires -DCOGG_PERCEPTION=ON for images");
+#endif
                 } else if (op == "evidence") {
                     std::lock_guard lock(control.mutex);
                     require(control.paused && !control.running && control.last != "worker stopped", "pause the host and wait for inference before supplying evidence");

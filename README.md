@@ -29,9 +29,13 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 ## Status
 
-**Current Version: 0.9.1 (Host / TUI; Phase 7 kernel)**
+**Current Version: 0.10.0 (Image perception host; Phase 7 kernel)**
 
 [Pre-perception stabilization](docs/STABILIZATION-2026-09-09.md) separates native KV namespaces and aligns adapter output limits.
+
+[Image perception](docs/PHASE-8.md) adds `/image PATH`: a configured vision organ
+observes a local PNG/JPEG, the actor answers and retains the observation in one
+subject commit, and later questions can recall it after restart. Audio remains open.
 
 The optional [terminal interface](docs/TUI.md) adds an independent `cogg-host` and
 `cogg-tui`: durable conversation, state, timeline, memory, commit inspection and
@@ -51,7 +55,8 @@ The [0.8.1 repairs](docs/REPAIRS-2026-09-08.md) preserve routing after open-task
 - [ ] **Phase 6 model quality:** Reliable evidence-aware participation across models; see [validation](docs/phase6-validation-20260908.json)
 - [x] **Phase 7 mechanisms:** Optional durable self-state and guarded commitments; [contract and model-switch example](docs/PHASE-7.md)
 - [ ] **Full Crystal integration:** Semantic self-model, drives and cognitive evaluation remain research work
-- [ ] **Phase 8:** Multimodal perception
+- [x] **Phase 8 image slice:** Explicit image → observation → answer and memory → recall after restart
+- [ ] **Phase 8 remaining:** Audio and broader multimodal composition/quality
 
 Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-phases).
 

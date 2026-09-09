@@ -30,6 +30,7 @@ const std::string help =
     "/since [tick]   commits since connection, or an explicit tick\n"
     "/why-awake  actual occasion and last committed wake plan\n"
     "/evidence TEXT   retry the paused request with an operator report\n"
+    "/image PATH   send a local PNG/JPEG to the configured vision organ\n"
     "/resume     allow execution (also explicitly retries a pending failure)\n"
     "/pause      stop new admissions; current inference may still commit\n"
     "/quit       disconnect; the host continues running\n\n"
@@ -160,7 +161,7 @@ int main(int argc, char** argv) {
         if (socket.empty()) throw std::runtime_error("--socket PATH is required");
         if (!single.is_null()) {
             const auto op = single.value("op", "");
-            if (watch && (op == "send" || op == "pause" || op == "resume" || op == "evidence")) throw std::runtime_error("watch mode is read-only");
+            if (watch && (op == "send" || op == "pause" || op == "resume" || op == "evidence" || op == "image")) throw std::runtime_error("watch mode is read-only");
             std::cout << ui::request(socket, single).dump(2) << '\n'; return 0;
         }
         View view; view.watch = watch; Box content_box;
@@ -200,6 +201,12 @@ int main(int argc, char** argv) {
             auto arg = split == std::string::npos ? "" : input.substr(split + 1);
             if (op == "quit") { screen.ExitLoopClosure()(); return; }
             if (op == "help") view.mode = "help";
+            else if (op == "image") {
+                if (view.watch || arg.empty()) { view.error = "Use /image LOCAL_PATH in talk mode."; return; }
+                if (input != retry_text) { retry_text = input; retry_key = ui::nonce(); }
+                pending = true; view.notice = "Saving image to inbox…"; view.error.clear();
+                enqueue({{{"op", "image"}, {"path", arg}, {"key", retry_key}}, true, "talk"}); return;
+            }
             else if (op == "talk" || op == "watch") { view.watch = op == "watch"; view.mode = "talk"; }
             else if (op == "timeline" || op == "state") view.mode = op;
             else if (op == "memory" || op == "inspect" || op == "since" || op == "why-awake" || op == "pause" || op == "resume" || op == "evidence") {

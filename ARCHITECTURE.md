@@ -2204,6 +2204,14 @@ work. See [the contract and example](docs/PHASE-7.md).
 
 Vision/audio organs.
 
+Implementation slice 2026-09-09: v0.10.0 supplies an optional host image module.
+A local image is retained by content hash; a configured vision executor produces
+an observation; the text actor commits a visible answer and the requested
+observation note together. Later recall uses ordinary deposits after process
+restart. Vision receipts are host evidence bound to head/occasion, not extra
+subject transitions. Audio, arbitrary organ composition and visual quality
+evaluation remain open. See [the implemented contract](docs/PHASE-8.md).
+
 ---
 
 # 61. Testing philosophy

@@ -1,4 +1,4 @@
-# cogg host and terminal client — experimental v0.9.0
+# cogg host and terminal client — experimental v0.10.0
 
 The terminal is a window into a running subject. `cogg-host` owns one subject and
 one configured executor; `cogg-tui` owns neither the database nor model inference.
@@ -83,6 +83,13 @@ across host restarts. Stop the host before changing its executor/configuration.
 The embedded llama.cpp/KV adapter is not wired to this first host; local models
 can be used through Ollama.
 
+Build with `-DCOGG_PERCEPTION=ON` and add `--vision-executor kimi` (or another
+configured image-capable executor) for `/image PATH`. The command describes and
+remembers a local PNG/JPEG, up to 5 MiB. Paths refer to the host filesystem;
+spaces are accepted without shell quotes. The actor receives the observation,
+and the image bytes go to the configured vision provider. See [Phase 8](PHASE-8.md)
+for retention, retry and resource boundaries.
+
 Model-requested wakes follow the kernel schedule, minimum interval and budget.
 They can execute without an attached terminal after `/resume`. Any non-success
 other than a normal scheduler wait pauses further admissions. In particular,
@@ -155,7 +162,8 @@ One JSON object plus newline in each direction; one request per connection:
 
 Responses are `{protocol, ok, data}` or `{protocol, ok:false, error}`. Operations
 are `snapshot`, `send`, `pause`, `resume`, `inspect`, `memory`, `since`,
-`why-awake`, `evidence` (requires `head`, `occasion`, `text`). The CLI mode uses the same protocol:
+`why-awake`, `evidence` (requires `head`, `occasion`, `text`), and optional `image`
+(requires `path`, `key`, accepts `text`). The CLI mode uses the same protocol:
 
 ```sh
 ./build/cogg-tui --socket /private/directory/host.sock \
@@ -201,7 +209,7 @@ own head/time; they can advance while that snapshot is being displayed.
 ## Deliberately outside this first slice
 
 Multi-subject selection, event streaming/subscriptions, rich causal graphs,
-organs/vision, operator `/wake`, durable subject suspend semantics, model
+general organ composition/audio, operator `/wake`, durable subject suspend semantics, model
 switching inside the UI, rich evidence collection, grant editors, native KV/GPU telemetry,
 Windows/macOS adapters and full Crystal remain follow-up work. No placeholders
 pretend those mechanisms already exist. `/since` uses real commits, not a
