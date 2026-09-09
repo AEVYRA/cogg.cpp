@@ -30,6 +30,16 @@ void replace(const std::string& path, const std::vector<char>& bytes) {
 }
 void envelope() {
     Temp temp;
+    const auto a = checkpoint_path(temp.dir.string(), "s", "origin-a", "model-a");
+    const auto b = checkpoint_path(temp.dir.string(), "s", "origin-b", "model-a");
+    const auto c = checkpoint_path(temp.dir.string(), "s", "origin-a", "model-b");
+    check(a != b && a != c && b != c, "cache namespace collides");
+    write_checkpoint(a, {{{"lineage", "a"}}, {1}}, 1024);
+    write_checkpoint(b, {{{"lineage", "b"}}, {2}}, 1024);
+    write_checkpoint(c, {{{"lineage", "a-model-b"}}, {3}}, 1024);
+    check(read_checkpoint(a, 1024)->state[0] == 1 && read_checkpoint(b, 1024)->state[0] == 2,
+          "peer lineage/executor overwrote cache");
+    rejects([&] { checkpoint_path(temp.dir.string(), "s", "", "backend"); });
     const auto path = checkpoint_path(temp.dir.string(), "../../subject");
     check(std::filesystem::path(path).parent_path() == temp.dir, "subject escaped cache directory");
     check(!read_checkpoint(path, 1024), "missing file not distinguished");

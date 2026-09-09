@@ -29,7 +29,9 @@ What `cogg.cpp` adds architecturally on top of this inference engine is the **du
 
 ## Status
 
-**Current Version: 0.9.0 (Experimental host / TUI; Phase 7 kernel)**
+**Current Version: 0.9.1 (Host / TUI; Phase 7 kernel)**
+
+[Pre-perception stabilization](docs/STABILIZATION-2026-09-09.md) separates native KV namespaces and aligns adapter output limits.
 
 The optional [terminal interface](docs/TUI.md) adds an independent `cogg-host` and
 `cogg-tui`: durable conversation, state, timeline, memory, commit inspection and

@@ -16,7 +16,7 @@ void run(const std::string& model) {
     std::filesystem::create_directory(dir);
     struct Cleanup { std::filesystem::path dir; ~Cleanup() { std::filesystem::remove_all(dir); } } cleanup{dir};
     const auto db = (dir / "subject.db").string();
-    const auto path = checkpoint_path(dir.string(), "s");
+    std::string path;
     LlamaOptions options; options.model_path = model; options.checkpoint_directory = dir.string(); options.timeout_ms = 60000;
     bool cancelled = false; options.cancelled = [&] { return cancelled; };
     Store store(db); store.create("s", {1, 100, 3600000}, 0);
@@ -29,6 +29,9 @@ void run(const std::string& model) {
               first.stats().checkpoint_write == "saved" && runtime.maintenance_error().empty(),
               "initial transition did not publish checkpoint");
         first_head = s->head;
+        for (const auto& file : std::filesystem::directory_iterator(dir))
+            if (file.path().extension() == ".coggkv") path = file.path().string();
+        check(!path.empty() && path != checkpoint_path(dir.string(), "s"), "native cache still uses unscoped subject name");
         check(read_checkpoint(path, options.max_checkpoint_bytes)->metadata.at("head") == first_head,
               "checkpoint not bound to successful commit");
     }

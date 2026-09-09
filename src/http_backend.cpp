@@ -1,4 +1,5 @@
 #include "cogg/http_backend.hpp"
+#include "cogg/output_limits.hpp"
 #include <curl/curl.h>
 #include <algorithm>
 #include <cstdlib>
@@ -65,7 +66,7 @@ For a created occasion, preserve initial memory; no speech is needed. For a supp
 Preserve memory unless explicitly asked to change it. Request no autonomous wake unless needed.)";
 // Ollama enforces the output shape; kernel validation still owns semantic invariants.
 json proposal_schema() {
-    return json::parse(R"JSON({
+    auto schema = json::parse(R"JSON({
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -169,6 +170,15 @@ json proposal_schema() {
     }
   }
 })JSON");
+    auto& properties = schema["properties"];
+    properties["memory"]["maxItems"] = output_limits::memory_writes;
+    properties["notes"]["maxItems"] = output_limits::notes;
+    for (const auto* key : {"sources", "covers"})
+        properties["notes"]["items"]["properties"][key]["maxItems"] = output_limits::sources;
+    // JSON Schema character lengths cannot express the core's UTF-8 byte limits.
+    properties["wake_after_ms"]["anyOf"][1]["minimum"] = 0;
+    properties["wake_after_ms"]["anyOf"][1]["maximum"] = 365LL * 24 * 60 * 60 * 1000;
+    return schema;
 }
 struct Transfer {
     std::string response;

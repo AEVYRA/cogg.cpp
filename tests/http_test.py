@@ -105,6 +105,10 @@ try:
                 assert output['emission']['attempt'] == requests[-1][2]
                 assert output['emission']['provider']['usage']['prompt_tokens'] == 300
         assert all(path != '/redirect-target' for path, _, _ in requests)
+        shape = next(body['format']['anyOf'][0]['properties'] for path, body, _ in requests if path.endswith('/api/chat'))
+        assert shape['memory']['maxItems'] == 64
+        assert shape['notes']['maxItems'] == 8
+        assert shape['notes']['items']['properties']['sources']['maxItems'] == 32
         db = root / 'fallback.db'
         run('init', db, 's', 1, 100, 1000)
         output = json.loads(run('run-route', db, 's', config, '--route', 'broken,good'))

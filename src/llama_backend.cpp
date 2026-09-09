@@ -1,4 +1,5 @@
 #include "cogg/llama_backend.hpp"
+#include "cogg/output_limits.hpp"
 #include <llama.h>
 #include <openssl/evp.h>
 #include <algorithm>
@@ -33,9 +34,9 @@ Sleep and failed attempts do not advance subject time. A null wake waits for ext
 Use concise output. Do not include markdown, hidden reasoning, or extra fields.
 You cannot change the subject tick, commit head, or runtime limits.)";
 constexpr const char* grammar = R"gbnf(
-root ::= "{" ws "\"kind\":" ws ("\"speech\"," ws "\"text\":" ws string | "\"reflection\"," ws "\"text\":" ws "\"\"" | "\"null\"," ws "\"text\":" ws "\"\"") ws "," ws "\"memory\":" ws "[" ws (write ("," ws write){0,7})? "]" ws "," ws ("\"notes\":" ws "[" ws (note ("," ws note){0,7})? "]" ws "," ws)? "\"wake_after_ms\":" ws ("null" | [0-9]{1,10}) ws "}"
+root ::= "{" ws "\"kind\":" ws ("\"speech\"," ws "\"text\":" ws string | "\"reflection\"," ws "\"text\":" ws "\"\"" | "\"null\"," ws "\"text\":" ws "\"\"") ws "," ws "\"memory\":" ws "[" ws (write ("," ws write){0,@WRITES@})? "]" ws "," ws ("\"notes\":" ws "[" ws (note ("," ws note){0,@NOTES@})? "]" ws "," ws)? "\"wake_after_ms\":" ws ("null" | [0-9]{1,10}) ws "}"
 note ::= "{" ws "\"key\":" ws string "," ws "\"text\":" ws string "," ws "\"type\":" ws ("\"note\"" | "\"fact\"" | "\"episode\"" | "\"task\"" | "\"summary\"") ws "," ws "\"status\":" ws ("\"active\"" | "\"open\"" | "\"closed\"" | "\"retracted\"") ws "," ws "\"sources\":" ws ids "," ws "\"covers\":" ws ids "}" ws
-ids ::= "[" ws (string ("," ws string){0,31})? "]" ws
+ids ::= "[" ws (string ("," ws string){0,@SOURCES@})? "]" ws
 write ::= "{" ws "\"key\":" ws string "," ws "\"value\":" ws value "}" ws
 value ::= string | number | object | array | "true" ws | "false" ws | "null" ws
 object ::= "{" ws (string ":" ws value ("," ws string ":" ws value)*)? "}" ws
@@ -148,11 +149,16 @@ struct LlamaBackend::Impl {
             {"endian", std::endian::native == std::endian::little ? "little" : "big"},
             {"effective_context", llama_n_ctx(context.get())}};
     }
+    std::string cache_path(const Present& p) const {
+        return checkpoint_path(options.checkpoint_directory, p.state.subject,
+            p.temporal.at("clock").at("origin").get<std::string>(),
+            identity + ":" + COGG_CHECKPOINT_BUILD);
+    }
     void restore(const Present& p) {
         if (options.checkpoint_directory.empty()) return;
         stats.checkpoint_read = "missing";
         try {
-            auto cp = read_checkpoint(checkpoint_path(options.checkpoint_directory, p.state.subject),
+            auto cp = read_checkpoint(cache_path(p),
                                       options.max_checkpoint_bytes);
             if (!cp) return;
             const auto& m = cp->metadata;
@@ -203,7 +209,7 @@ struct LlamaBackend::Impl {
         cp.state.resize(size);
         if (llama_state_seq_get_data(context.get(), cp.state.data(), size, 0) != size)
             throw Error("libllama checkpoint serialization failed");
-        write_checkpoint(checkpoint_path(options.checkpoint_directory, s.subject), cp,
+        write_checkpoint(cache_path(p), cp,
                          options.max_checkpoint_bytes, options.checkpoint_hook);
         stats.checkpoint_write = "saved";
         pending_head.clear(); pending_tick = -1;
@@ -295,6 +301,10 @@ struct LlamaBackend::Impl {
             Sampler sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), llama_sampler_free);
             if (!sampler) throw Error("sampler allocation failed");
             std::string allowed = grammar;
+            for (const auto& [marker, maximum] : std::initializer_list<std::pair<std::string, std::size_t>>{
+                     {"@WRITES@", output_limits::memory_writes}, {"@NOTES@", output_limits::notes},
+                     {"@SOURCES@", output_limits::sources}})
+                allowed.replace(allowed.find(marker), marker.size(), std::to_string(maximum - 1));
             if (options.internal_only) {
                 const std::string speech = R"("\"speech\"," ws "\"text\":" ws string | )";
                 const auto at = allowed.find(speech);

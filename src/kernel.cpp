@@ -1,4 +1,5 @@
 #include "cogg/kernel.hpp"
+#include "cogg/output_limits.hpp"
 #include "memory_internal.hpp"
 #include "cogg/routing.hpp"
 #include <sqlite3.h>
@@ -65,7 +66,7 @@ void validate(const Proposal& p) {
             "unsupported transition kind");
     require(p.text.size() <= max_payload, "speech too large");
     require(p.kind == "speech" || p.text.empty(), "only speech may emit text");
-    require(p.memory.size() <= 64, "too many memory writes");
+    require(p.memory.size() <= output_limits::memory_writes, "too many memory writes");
     std::set<std::string> keys;
     for (const auto& w : p.memory) {
         check_text(w.key, 128, "memory key");

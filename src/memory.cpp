@@ -1,4 +1,5 @@
 #include "memory_internal.hpp"
+#include "cogg/output_limits.hpp"
 #include <algorithm>
 #include <cctype>
 #include <map>
@@ -154,7 +155,7 @@ MemoryNote parse_memory_note(const json &j) {
     return n;
 }
 void validate_memory_notes(const std::vector<MemoryNote> &notes) {
-    need(notes.size() <= 8, "too many typed memory writes");
+    need(notes.size() <= output_limits::notes, "too many typed memory writes");
     std::set<std::string> keys;
     for (const auto &n : notes) {
         text_ok(n.key, 128);
@@ -166,7 +167,7 @@ void validate_memory_notes(const std::vector<MemoryNote> &notes) {
         need(n.status == "active" || n.status == "open" || n.status == "closed" || n.status == "retracted",
              "invalid memory status");
         need(n.status != "open" || n.type == "task", "only tasks can be open");
-        need(n.sources.size() <= 32 && n.covers.size() <= 32, "too many memory sources");
+        need(n.sources.size() <= output_limits::sources && n.covers.size() <= output_limits::sources, "too many memory sources");
         std::set<std::string> src, cover;
         for (const auto &x : n.sources) {
             need(x.size() == 64 && x.find_first_not_of("0123456789abcdef") == std::string::npos,

@@ -14,4 +14,8 @@ std::optional<Checkpoint> read_checkpoint(const std::string& path, std::uint64_t
 void write_checkpoint(const std::string& path, const Checkpoint&, std::uint64_t max_bytes,
                       const std::function<void(CheckpointPoint)>& hook = {});
 std::string checkpoint_path(const std::string& directory, const std::string& subject);
+// Native caches use a stable lineage + executor/build namespace. The two-argument
+// overload remains for explicitly scoped custom cache directories.
+std::string checkpoint_path(const std::string& directory, const std::string& subject,
+                            const std::string& origin, const std::string& executor);
 } // namespace cogg

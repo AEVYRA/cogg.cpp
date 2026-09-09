@@ -76,6 +76,11 @@ std::string checkpoint_path(const std::string& directory, const std::string& sub
     for (auto b : d) { name += "0123456789abcdef"[b >> 4]; name += "0123456789abcdef"[b & 15]; }
     return (std::filesystem::path(directory) / (name + ".coggkv")).string();
 }
+std::string checkpoint_path(const std::string& directory, const std::string& subject,
+                            const std::string& origin, const std::string& executor) {
+    check(!origin.empty() && !executor.empty(), "checkpoint namespace requires origin and executor");
+    return checkpoint_path(directory, json::array({"cogg-cache/v2", subject, origin, executor}).dump());
+}
 std::optional<Checkpoint> read_checkpoint(const std::string& path, std::uint64_t max_bytes) {
 #ifdef __unix__
     FD fd(::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
