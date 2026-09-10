@@ -1,15 +1,11 @@
-# Phase 0 contract
+# Durable kernel
 
-Scope clarification, 2026-09-07: the earlier announcement of a reuse-only
-direction was Sofia's overcorrection. No decision to abandon an independent
-cogg.cpp foundation has been made. Phase 0 remains an implemented experiment;
-platform choice must account for both Physalia and other potential builders.
-
-This document describes executable behavior in 0.1.0. `ARCHITECTURE.md` describes
-the larger research program. The public C++ API is experimental.
-The kernel contract remains in force in 0.2.0; the optional model adapter and its
-additional limits are described in [Phase 1](LOCAL_MODELS.md). The scope exclusions
-below describe the original Phase 0 release, not all of 0.2.0.
+The trusted host owns storage and admission. A backend proposes a transition;
+the kernel validates and commits it. The public C++ API remains experimental.
+The contract originated in v0.1.0 and is extended by [Scheduling](SCHEDULING.md),
+[Memory](MEMORY.md) and [Composition](COMPOSITION.md). See
+[Local models](LOCAL_MODELS.md) for native inference and
+[Executors](EXECUTORS.md) for HTTP routing.
 
 ## Ownership and transition
 
@@ -84,21 +80,21 @@ independent creations using the same display identifier.
 
 ## Scope and limits
 
-The in-process backend interface is a programming boundary, not an OS sandbox
-against malicious native code. There are no model calls, token/VRAM/energy
-quotas, inference timeouts, KV checkpoints, subject signatures or key rotation
-yet. The tested replacement is a backend identity change above stored state;
-it does not establish behavioral continuity between real models.
+The in-process backend interface is a programming boundary, not an OS sandbox.
+Core admission counts attempts and constrains waking. Native adapters add
+cooperative inference deadlines and context/output limits; these do not establish
+complete RAM, VRAM, energy or disk quotas. Subject signatures and key rotation
+remain unimplemented. Hash-chain verification detects inconsistent records but
+cannot authenticate a database fully rewritten by a privileged host.
 
-Memory is bounded JSON key assignment: 64 writes/proposal, 64 KiB/value, 1 MiB
-total subject projection. Each commit stores a full projection, so disk usage
-grows; this release has no archival/compaction policy or ingress disk quota.
-Null JSON is a stored value, not deletion. Belief/relation/episodic semantics,
-arbitrary DAG merges and multi-organ integration remain later phases. The
-current causal structure links occasions to their observed subject head and
-commits to the accepted occasion and reserved attempt.
+Legacy key/value memory permits 64 writes/proposal, 64 KiB/value and a 1 MiB
+subject projection. Null JSON is a stored value, not deletion. [Typed deposits](MEMORY.md)
+add bounded working context and source-linked compaction without deleting the
+original durable history. Full projections and history verification have growing
+storage/replay costs; no history archival or ingress disk quota is supplied.
+Arbitrary DAG merges and semantic claim integration are outside this kernel.
 
-## Validation
+## Historical validation — v0.1.0
 
 Linux, GCC 12.2, SQLite 3.40.1, OpenSSL 3.0.20, nlohmann/json 3.11.2:
 
@@ -113,4 +109,5 @@ Linux, GCC 12.2, SQLite 3.40.1, OpenSSL 3.0.20, nlohmann/json 3.11.2:
 - Both CTest suites passed in Debug and with AddressSanitizer + UBSan.
 
 These are process-crash tests, not a hardware power-loss campaign or an inference
-quality benchmark. CI repeats the Linux checks; CI itself has not run remotely.
+quality benchmark. Current remote CI and reproduction commands are linked from
+[Validation](VALIDATION.md).

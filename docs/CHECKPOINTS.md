@@ -1,4 +1,4 @@
-# Phase 2: durable context checkpoints
+# Durable context checkpoints
 
 Version 0.3.0 adds optional KV checkpoints to the local libllama backend.
 The durable subject ledger remains authoritative. A checkpoint accelerates
@@ -55,7 +55,9 @@ This is a normal recovery path, not a partially committed subject.
 
 ## Envelope and compatibility
 
-One `<SHA256(subject-name)>.coggkv` file per subject contains:
+Native cache filenames hash the subject name, clock origin, executor identity
+and adapter build. Separate lineages or executor configurations therefore use
+separate `.coggkv` files. Each file contains:
 
 | Field | Purpose |
 |---|---|

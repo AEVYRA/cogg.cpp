@@ -8,7 +8,7 @@ represent separate histories. Restarting a worker does not create a new subject.
 
 This phase deliberately narrows the original integration roadmap. The kernel
 provides typed non-participation and provenance-bearing inputs. A host application
-(such as a future Physalia controller) chooses participants, obtains observations,
+(such as a Physalia controller) chooses participants, obtains observations,
 compares claims, decides whether further work is useful, and proposes closure.
 The existing optional sequential router remains useful for transport recovery.
 Semantic voting, truth scoring, a disagreement engine and a distributed workflow
@@ -86,7 +86,8 @@ truth, or protection against an administrator replacing the whole database.
 Database version **5** adds the receipt table and freezes `inputs` in new
 admissions. Record schemas 1–4 remain readable and their bytes are preserved.
 Opening a legacy database migrates it; older cogg binaries reject version 5.
-**Do not open the pinned Phase 3 experiment database with this binary.**
+Use separate databases and pinned binaries for observations that require a
+fixed runtime revision.
 
 ## Supplying evidence without consuming the request
 

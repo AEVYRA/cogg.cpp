@@ -36,7 +36,6 @@ to fail, rather than a false claim of retention.
 Acceptance: independent sessions, capability and remote gates, fallback accounting,
 malformed/partial/late responses, conflicting writers, replay and legacy migration;
 then a shared history across local Qwen, DeepSeek and Kimi with explicit opt-in.
-Phase 3's pinned 48-hour experiment remains untouched. Mac is postponed.
 Deliberation, voting and resolution of model disagreement belong to Phase 6.
 
 ## Build and run

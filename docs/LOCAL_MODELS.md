@@ -1,8 +1,9 @@
-# Phase 1: one local model
+# Local model inference
 
-Version 0.2.0 continues the C++ kernel with an optional libllama backend.
-Version 0.3.0 adds [Phase 2 disk checkpoints](CHECKPOINTS.md); the descriptions below
-of memory-only KV document the original Phase 1 boundary.
+The optional native libllama adapter runs GGUF models on the CPU. It was introduced
+in v0.2.0; current builds also support [durable KV checkpoints](CHECKPOINTS.md)
+and [bounded memory retrieval](MEMORY.md).
+
 ## Build and run
 
 The default build still has no inference dependency. Enable the adapter with:
@@ -61,8 +62,8 @@ generated. Only exact matching canonical tokens may be reused.
 
 After eviction or process restart the prompt is rebuilt from verified durable
 state. KV is an acceleration cache, not the authority for memory or identity.
-This implementation does not serialize KV to disk; durable checkpoint envelopes
-remain Phase 2. Hot reuse is not claimed to preserve a separate hidden stream of
+With `--checkpoint-dir`, compatible KV can be restored from disk; otherwise
+restart reconstructs from committed state. Hot reuse does not establish a hidden stream of
 thought beyond canonical state. In the local Qwen fixture, hot and cold greedy
 outputs differed despite identical input tokens. Prefix reuse changes evaluation
 batching; exact generated-text equality is not a contract. Both paths must still
@@ -71,7 +72,8 @@ propose valid transitions from the same committed state.
 ## Bounded generation and failure
 
 The sampler applies a fixed transition grammar followed by greedy selection.
-It accepts one complete JSON proposal, with at most eight memory assignments.
+It accepts one complete JSON proposal, with up to 64 legacy memory assignments
+and eight typed notes. Shared bounds live in `include/cogg/output_limits.hpp`.
 The normal kernel parser then checks semantics, including duplicate keys, field
 authority, memory sizes and wake range. Syntax-constrained generation alone does
 not establish the truth or usefulness of a proposal.
