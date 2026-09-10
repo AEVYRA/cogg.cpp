@@ -120,7 +120,7 @@ json content_of(const json& view, const json& grant) {
 State replay(Store& store, const std::string& subject, json& view) {
     auto timeline = store.timeline(subject);
     store.verify(subject);
-    if (store.snapshot(subject).head != timeline.at("head")) throw Conflict("self history changed during verification");
+    if (store.snapshot(subject).head != timeline.at("head").get<std::string>()) throw Conflict("self history changed during verification");
     State state;
     std::map<std::string, json> attempts;
     for (const auto& a : timeline.at("attempts")) attempts.emplace(a.at("id"), a.at("body"));

@@ -179,6 +179,25 @@ void boundaries() {
     check(entry(recall(s, "winner"), "winner").at("text") == "left", "stale writer leaked memory");
     std::cout << "PASS isolation, Unicode, pressure, receipt, parser, concurrent writes\n";
 }
+void cross_connection_integrity() {
+    Temp tmp;
+    Store reader(tmp.db());
+    reader.create("s", {1, 10000, 1000000}, 0);
+    write(reader, {{"first", "First searchable deposit.", "fact"}}, 1);
+    check(has(recall(reader, "searchable"), "first"), "initial reader index missing");
+    {
+        Store writer(tmp.db());
+        write(writer, {{"second", "Second searchable deposit.", "fact"}}, 2);
+    }
+    // Ubuntu 24.04 SQLite 3.45.1 used stale FTS metadata here and falsely
+    // reported a malformed inverted index, although a fresh connection passed.
+    reader.verify("s");
+    check(has(recall(reader, "Second"), "second"), "reader missed another connection's deposit");
+    // Synchronizing the FTS read snapshot must not suppress real corruption.
+    sql(tmp.db(), "UPDATE memory_fts_content SET c3='forged unrelated text'");
+    rejects([&] { reader.verify("s"); }, "");
+    std::cout << "PASS cross-connection FTS integrity and actual corruption rejection\n";
+}
 void legacy() {
     Temp tmp;
     std::ifstream file(COGG_LEGACY_V2_FIXTURE); std::stringstream contents; contents << file.rdbuf();
@@ -226,6 +245,7 @@ void crash() {
 int main() {
     try {
         legacy();
+        cross_connection_integrity();
         lifecycle();
         boundaries();
         crash();

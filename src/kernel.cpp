@@ -509,7 +509,7 @@ std::string Store::abstain(const std::string& attempt, const Abstention& outcome
         if (old.text(0) != id || aq.text(1) != "abstained") throw Conflict("different abstention already settled");
         tx.commit(); return id;
     }
-    if (aq.text(1) != "reserved" || impl_->snapshot(a.at("subject").get<std::string>()).head != a.at("parent"))
+    if (aq.text(1) != "reserved" || impl_->snapshot(a.at("subject").get<std::string>()).head != a.at("parent").get<std::string>())
         throw Conflict("attempt already settled or stale");
     Statement insert(db, "INSERT INTO abstentions VALUES(?,?,?)");
     insert.bind(1, id).bind(2, attempt).bind(3, body.dump()).done();
@@ -564,8 +564,17 @@ void Store::verify(const std::string& subject) { verify_impl(subject, true); }
 void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     auto* db = impl_->db;
     Transaction tx(db, false);
+    // Enter this read snapshot through FTS5 before xIntegrity uses its cache.
+    // SQLite 3.45.1 otherwise reports a malformed index after another connection
+    // changes it. The empty phrase returns no hits and does not modify the DB.
+    {
+        Statement refresh(db, "SELECT rowid FROM memory_fts WHERE memory_fts MATCH '\"\"'");
+        while (refresh.row()) {}
+    }
     Statement integrity(db, "PRAGMA integrity_check");
-    require(integrity.row() && integrity.text(0) == "ok", "SQLite integrity failure");
+    require(integrity.row(), "SQLite integrity_check returned no result");
+    const auto integrity_result = integrity.text(0);
+    require(integrity_result == "ok", "SQLite integrity failure: " + integrity_result);
     Statement fk(db, "PRAGMA foreign_key_check"); require(!fk.row(), "foreign key failure");
     auto s = impl_->snapshot(subject);
     json memory = json::object();

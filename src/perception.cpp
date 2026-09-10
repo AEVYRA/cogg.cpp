@@ -71,7 +71,7 @@ json import_image(const std::string& path,const std::string& dir) {
 }
 std::vector<std::uint8_t> image_bytes(const std::string& dir,const json& image) {
     descriptor(image);auto bytes=read((fs::path(dir)/(image.at("sha256").get<std::string>()+".image")).string(),max_image_bytes);
-    need(bytes.size()==image.at("bytes")&&hash_bytes(bytes)==image.at("sha256")&&mime(bytes)==image.at("mime"),"image content changed or missing");return bytes;
+    need(bytes.size()==image.at("bytes").get<std::size_t>()&&hash_bytes(bytes)==image.at("sha256").get<std::string>()&&mime(bytes)==image.at("mime").get<std::string>(),"image content changed or missing");return bytes;
 }
 json image_context(Store& store,const std::string& subject,HttpBackend& vision,const std::string& dir,
                    millis now,millis timeout,const std::function<bool()>& cancelled) {
@@ -117,7 +117,7 @@ Outcome ImageActor::respond_attempt(const Attempt& a,millis timeout,const std::f
             if(p->kind!="speech"||p->text.empty())
                 throw BackendFailure("describe-and-remember image request requires a visible answer or abstention",FailureKind::invalid_output);
             const auto& note=content.at("memory_note");
-            bool found=false;for(const auto& n:p->notes) if(n.key==note.at("key")&&n.text==note.at("text")&&n.type=="episode"&&n.status=="active"&&n.sources.empty()&&n.covers.empty())found=true;
+            bool found=false;for(const auto& n:p->notes) if(n.key==note.at("key").get<std::string>()&&n.text==note.at("text").get<std::string>()&&n.type=="episode"&&n.status=="active"&&n.sources.empty()&&n.covers.empty())found=true;
             if(!found)throw BackendFailure("image answer omitted the requested observation memory",FailureKind::invalid_output);
         }
     }
