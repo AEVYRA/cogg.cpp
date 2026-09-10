@@ -8,7 +8,7 @@ platform choice must account for both Physalia and other potential builders.
 This document describes executable behavior in 0.1.0. `ARCHITECTURE.md` describes
 the larger research program. The public C++ API is experimental.
 The kernel contract remains in force in 0.2.0; the optional model adapter and its
-additional limits are described in [Phase 1](PHASE-1.md). The scope exclusions
+additional limits are described in [Phase 1](LOCAL_MODELS.md). The scope exclusions
 below describe the original Phase 0 release, not all of 0.2.0.
 
 ## Ownership and transition

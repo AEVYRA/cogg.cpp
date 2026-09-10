@@ -6,7 +6,7 @@ reconstruction and cannot advance or roll back the subject's committed state.
 
 ## Use
 
-Build with `-DCOGG_LLAMA=ON` as in [Phase 1](PHASE-1.md), then:
+Build with `-DCOGG_LLAMA=ON` as in [Phase 1](LOCAL_MODELS.md), then:
 
 ```sh
 mkdir -m 700 checkpoints
@@ -154,6 +154,6 @@ external pinned libllama remained a Release build. The separate real-model
 process test also passed through tick 5. These checks used the pinned Qwen
 fixture and the older-i5 CPU flags documented in Phase 1.
 
-Phase 3 temporal mechanisms and the observation protocol are now described in [PHASE-3.md](PHASE-3.md). Durable context is now
+Phase 3 temporal mechanisms and the observation protocol are now described in [SCHEDULING.md](SCHEDULING.md). Durable context is now
 an execution mechanism; the scheduling, temporal provenance and cognitive
 semantics still need the separate architectural work described in the roadmap.

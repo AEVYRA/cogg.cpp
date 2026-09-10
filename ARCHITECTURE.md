@@ -1,11 +1,8 @@
-> Implementation note, 2026-09-08: this document preserves the original research roadmap;
-> its examples are not current APIs. Phases 0–5 mechanisms are implemented. Phase 6
-> now supplies a bounded composition boundary: typed abstention and provenance inputs.
-> See [Phase 6](docs/PHASE-6.md) for the explicit scope revision and current API.
-> Semantic integration/claim selection belongs to the host application. The Phase 3
-> 48-hour observation and model-quality gates remain open. Crystal, signatures and
-> real perception remain planned. Phase 7 now provides an optional host self-state
-> policy and guarded commitments; see [its bounded scope](docs/PHASE-7.md).
+> Research roadmap, not the current API reference. Some mechanisms described here
+> are implemented; others remain proposals. See the [documentation index](docs/README.md)
+> for implemented contracts and [validation limits](docs/VALIDATION.md) for open work.
+> Image perception is implemented as an optional host module; audio, subject
+> signatures and broader cognitive integration remain research work.
 
 # cogg.cpp
 ## Persistent Cognitive Runtime for Continuous Synthetic Subjects
@@ -2189,7 +2186,7 @@ The original claims/disagreement graph/candidate closure/additional-round design
 is retained above as research context. Semantic integration and its scheduling
 are now host-level work (e.g. Physalia), not prerequisites for the cogg kernel.
 A single executor is sufficient; a process is not a unit of subject identity.
-See [the implemented contract](docs/PHASE-6.md).
+See [the implemented contract](docs/COMPOSITION.md).
 
 ## Phase 7 — Crystal/self-model
 
@@ -2198,7 +2195,7 @@ ordinary memory. An application-defined profile and explicit task commitments
 survive process/executor replacement; mutations require exact, admission-bound
 host grants. No separate database, semantic self interpreter, or full Crystal
 integration is introduced. Full integration of Aevyra structures remains future
-work. See [the contract and example](docs/PHASE-7.md).
+work. See [the contract and example](docs/SELF_STATE.md).
 
 ## Phase 8 — Perception
 
@@ -2210,7 +2207,7 @@ an observation; the text actor commits a visible answer and the requested
 observation note together. Later recall uses ordinary deposits after process
 restart. Vision receipts are host evidence bound to head/occasion, not extra
 subject transitions. Audio, arbitrary organ composition and visual quality
-evaluation remain open. See [the implemented contract](docs/PHASE-8.md).
+evaluation remain open. See [the implemented contract](docs/PERCEPTION.md).
 
 ---
 

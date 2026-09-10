@@ -144,8 +144,8 @@ Protocol references: [Ollama chat](https://docs.ollama.com/api/chat),
 
 ## Observed validation, 2026-09-08
 
-The [machine-readable report](phase5-validation-20260908.json) retains the live
-results and earlier failures. With the final common prompt and Ollama output
+The following historical smoke summary retains successes and earlier failures;
+see [validation scope](VALIDATION.md) for current checks. With the common prompt and Ollama output
 schema, Qwen3B → DeepSeek V4 Flash → Kimi K3 → Qwen3B completed four verified
 transitions in separate CLI processes. DeepSeek read the original fixture value;
 Kimi changed it; a fresh Qwen session read the updated value. The final memory

@@ -87,7 +87,7 @@ Build with `-DCOGG_PERCEPTION=ON` and add `--vision-executor kimi` (or another
 configured image-capable executor) for `/image PATH`. The command describes and
 remembers a local PNG/JPEG, up to 5 MiB. Paths refer to the host filesystem;
 spaces are accepted without shell quotes. The actor receives the observation,
-and the image bytes go to the configured vision provider. See [Phase 8](PHASE-8.md)
+and the image bytes go to the configured vision provider. See [Phase 8](PERCEPTION.md)
 for retention, retry and resource boundaries.
 
 Model-requested wakes follow the kernel schedule, minimum interval and budget.
@@ -110,7 +110,7 @@ With an existing genesis `self.profile`, `COGG_SELF=ON` routes each attempt
 through `SelfRuntime` with read-only self access. Ordinary deposits remain
 possible; profile/commitment writes need an exact grant and are rejected here.
 No grants are inferred from user text. Grant editing and creation of self-state
-subjects remain with the [Phase 7 host API/example](PHASE-7.md).
+subjects remain with the [Phase 7 host API/example](SELF_STATE.md).
 
 ## Controls and views
 
@@ -217,7 +217,7 @@ model-invented summary or a persisted "last visit" receipt.
 
 ## Validation — 2026-09-08
 
-[Machine-readable results](tui-validation-20260908.json): Debug 11/11 and
+Historical checks: Debug 11/11 and
 ASan/UBSan 11/11, followed by focused TUI reruns after the Ctrl+C fix and extra
 SIGKILL regression (7.11 s / 10.02 s). The minimal host without HTTP/self also
 passed its demo process checks; the core-only Release build remains available.
@@ -229,7 +229,6 @@ no automatic retry after abstention, protected self state and terminal escapes.
 A separate bounded live DeepSeek smoke test made two attempts (creation + user
 message), committed “Связь работает.”, rendered the saved speech, then stopped
 the API host. It is a transport/UI check, not an intelligence benchmark.
-The separate pinned Phase 3 unit remained active with its manifest unchanged.
 
 ### First-use repair
 
@@ -245,15 +244,7 @@ is preserved in history. Updated TUI process tests passed Debug (7.50 s) and
 ASan/UBSan (10.41 s); the kernel was unchanged. This is manual evidence handoff,
 not an automatic browsing capability.
 
-## Provenance
-
-Design source: local **untracked**
-`physalia-gyre/papers/gyre_tui_architecture.md`, inspected 2026-09-08.
-SHA-256 `119ccec253e2863d5d71a1ae6fca0e47761a489b95c0c63c9330eae1ccb1652a`.
-The corpus checkout was at `860ca9e653d6b0f27f4235035194346e12d21478`;
-the draft itself is **not part of that Git commit**. This document is a maintained
-implementation adaptation, not a frozen copy of the draft. The corpus source
-was not edited.
+## Dependency
 
 Terminal library: [FTXUI](https://github.com/ArthurSonzogni/FTXUI), MIT,
 version 6.1.9 / commit `5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6`.

@@ -170,5 +170,5 @@ python3 tools/phase6_smoke.py --cli build/cogg-cli \
 This uses a **synthetic observation**, not a real camera or vision model. The test
 checks missing-input abstention, then a supported attributed answer after a fresh
 process supplies evidence for the same request. Passing checks the tested scenario,
-not general epistemic calibration. Results and limitations are recorded in
-[the validation report](phase6-validation-20260908.json).
+not general epistemic calibration. Reliable evidence-aware participation
+across models remains open; see [validation scope](VALIDATION.md).

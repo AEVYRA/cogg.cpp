@@ -1,7 +1,7 @@
 # Phase 4 — bounded working context and durable memory deposits
 
 Version 0.5.0. Research and alternatives were reviewed before implementation;
-see [research decision](MEMORY-RESEARCH-2026-09-08.md). No external memory service,
+see [research decision](MEMORY_DESIGN.md). No external memory service,
 Akari installation, embedding model or second LLM is required. SQLite must include
 FTS5 (`unicode61` and BM25). Existing Debian/Ubuntu build dependencies provide it.
 
@@ -154,15 +154,14 @@ note can still be rejected for nonexistent sources or an invalid compaction.
 
 ## Evidence and limitations
 
-The small comparison in [memory-benchmark-20260908.json](memory-benchmark-20260908.json)
-uses the same 2400-byte/four-item budget: recent-only 1/6 evidence hits, lexical
+The deterministic `cogg-memory-benchmark` comparison uses the same 2400-byte/four-item budget: recent-only 1/6 evidence hits, lexical
 4/6, balanced 5/6. All fail the intentionally included synonym-only query. It is
 a deterministic contract fixture, not a LongMemEval score, a model answer score,
 or a head-to-head deployment test of Letta/Mastra/Hindsight. Timings include full
 verification and were collected with other model tests running; they are not
 latency claims. The quality hypothesis remains open for larger naturalistic benchmarks.
 
-A subsequent [two-model read-quality experiment](MEMORY-QUALITY-2026-09-08.md)
+A subsequent [two-model read-quality experiment](MEMORY_EVALUATION.md)
 compares grounded answers from balanced retrieval and the last four messages at
 equal evidence caps. Both DeepSeek and Kimi answered 6/7 known-fact cases with
 balanced retrieval versus 1/7 with the last messages; synonym-only retrieval still

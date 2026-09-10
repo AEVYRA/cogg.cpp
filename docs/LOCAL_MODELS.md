@@ -1,12 +1,8 @@
 # Phase 1: one local model
 
 Version 0.2.0 continues the C++ kernel with an optional libllama backend.
-Version 0.3.0 adds [Phase 2 disk checkpoints](PHASE-2.md); the descriptions below
+Version 0.3.0 adds [Phase 2 disk checkpoints](CHECKPOINTS.md); the descriptions below
 of memory-only KV document the original Phase 1 boundary.
-On 2026-09-07 Sasha explicitly authorized development after reviewing the whole
-Physalia architecture. Both Physalia and an independently reusable open component
-remain goals. The earlier reuse-only direction is superseded.
-
 ## Build and run
 
 The default build still has no inference dependency. Enable the adapter with:
@@ -17,7 +13,7 @@ cmake -S . -B build-llama -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-llama -j2
 ctest --test-dir build-llama --output-on-failure
 ./build-llama/cogg-cli init subject.db explorer 1000 20 3600000
-./build-llama/cogg-cli send subject.db explorer hello-1 "Hello. Remember my name is Sasha."
+./build-llama/cogg-cli send subject.db explorer hello-1 "Hello. Remember my name is Alex."
 ./build-llama/cogg-cli run-model subject.db explorer /path/to/model.gguf --steps 2
 ./build-llama/cogg-cli inspect subject.db explorer
 ```

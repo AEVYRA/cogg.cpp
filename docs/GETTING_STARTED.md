@@ -1,6 +1,6 @@
 # Getting Started with cogg.cpp
 
-This guide explains how to embed the `cogg.cpp` transition kernel into your own C++ application. 
+This guide explains how to embed the `cogg.cpp` transition kernel into your own C++ application.
 
 While `cogg.cpp` provides a built-in `cogg-cli` and a `llama.cpp` backend out of the box, its true power lies in its embeddable API. You can use it to give any AI model (local or API-based) a persistent, crash-resilient lifecycle and an explicit logical clock of committed transitions.
 
@@ -29,7 +29,7 @@ public:
 
     cogg::Proposal propose(const cogg::Present& present) override {
         std::cout << "Agent woke up! Tick: " << present.state.tick << "\n";
-        
+
         // 1. Read the state (memory, inbox event, etc.)
         if (present.occasion.kind == "external") {
             std::cout << "Received: " << present.occasion.payload["text"] << "\n";
@@ -39,13 +39,13 @@ public:
         cogg::Proposal prop;
         prop.kind = "reflection";
         // Reflection carries no outward text; speech is a separate transition kind.
-        
+
         // 3. Write to memory (atomic key-value update)
         prop.memory.push_back({"last_thought", "I am processing the input."});
-        
+
         // 4. Request the next autonomous wake-up (Endogenous Time)
         // e.g., Request to wake after 5 seconds (subject to admission limits) (5000 ms)
-        prop.wake_after_ms = 5000; 
+        prop.wake_after_ms = 5000;
 
         return prop;
     }
@@ -75,7 +75,7 @@ int main() {
     store.submit(
         "agent_01",               // Subject ID
         "msg_123",                // Unique Idempotency Key
-        R"({"text": "Hello!"})"_json, 
+        cogg::json{{"text", "Hello!"}},
         cogg::wall_now()
     );
 
@@ -88,7 +88,7 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(limits.min_wake_ms));
 
     // Step again to process the external message
-    // The Runtime checks quotas, reads the inbox, calls backend.propose(), 
+    // The Runtime checks quotas, reads the inbox, calls backend.propose(),
     // and commits the result atomically to SQLite.
     auto snapshot = runtime.step("agent_01", cogg::wall_now());
 
@@ -108,8 +108,8 @@ When `runtime.step()` is called:
 1. **Time Check:** The `Store` checked if `agent_01` was eligible to wake up according to its `Limits`.
 2. **Execution:** The `Runtime` passed the `Present` state (containing the `Hello!` event) to your `MyAgentBackend`.
 3. **Persistence:** The `Proposal` (including the 5-second sleep request and the memory write) was cryptographically hashed and saved to SQLite in a single transaction.
-    
-Because `cogg.cpp` is fail-closed, if someone pulled the server's power cord during `propose()`, the event remains safe in the inbox. When the server reboots, calling `runtime.step()` will seamlessly retry the operation.
+
+Because `cogg.cpp` is fail-closed, if someone pulled the server's power cord during `propose()`, the event remains safe in the inbox. When the server reboots, calling `runtime.step()` can retry the operation after reopening the existing database.
 
 The first step handles `created`; the second handles `external`. Minimum spacing
 applies to both. Run this example in a fresh directory; repeating `create()` on

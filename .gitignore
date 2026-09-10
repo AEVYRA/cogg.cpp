@@ -1,8 +1,46 @@
+# Build products and local development
 /build*/
+/cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+*.swp
+
+# Credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+/configs/*.local.json
+/configs/*.private.json
+*.pem
+*.key
+
+# Runtime state, model weights and generated observations
 *.db
 *.db-wal
 *.db-shm
-
+*.sqlite
+*.sqlite3
+*.log
+*.jsonl
+*.gguf
+*.sock
 /experiments/
-__pycache__/
-*.pyc
+/artifacts/
+/reports/
+/runtime/
+/checkpoints/
+/models/
+
+# Internal reviews and dated run exports belong outside the public source tree
+/docs/REVIEW-*.md
+/docs/CI-REPAIR-*.md
+/docs/*-validation-*.json
+/docs/*-live-*.json
+/docs/memory-benchmark-*.json
+/docs/memory-quality-*.json

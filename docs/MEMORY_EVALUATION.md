@@ -75,9 +75,9 @@ There is one sample per cell and eight cases; no general superiority, production
 reliability or benchmark standing is claimed. Earlier Qwen limitations and the
 pinned Phase 3 gate remain open.
 
-The [result artifact](memory-quality-20260908.json) includes protocol, frozen
-contexts, scores and outputs. Raw inputs, subprocess outputs, fixture DB and build
-logs are retained in `~/.local/state/cogg/memory-quality-20260908/`.
+Per-run transcripts and generated reports are kept outside the source tree.
+The fixture and scoring harness remain available below; limitations and failures
+are retained in this summary. See [validation scope](VALIDATION.md).
 
 ## Reproduce (explicit provider calls)
 

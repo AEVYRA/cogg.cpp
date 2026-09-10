@@ -1,112 +1,94 @@
 # cogg.cpp
 
-A lightweight, durable C++ runtime for autonomous AI agents with persistent state, deterministic event loops, and bounded autonomous waking.
+[![C++ kernel](https://github.com/AEVYRA/cogg.cpp/actions/workflows/build.yml/badge.svg)](https://github.com/AEVYRA/cogg.cpp/actions/workflows/build.yml)
+[![Local model adapter](https://github.com/AEVYRA/cogg.cpp/actions/workflows/llama.yml/badge.svg)](https://github.com/AEVYRA/cogg.cpp/actions/workflows/llama.yml)
 
-`cogg.cpp` provides a low-level engine where an LLM's subjective time and memory are cryptographically coupled to a host SQLite database. It is designed as a foundational transition kernel that gives local models a continuous, crash-resilient existence tied to real host resources. This implements logical commit coordinates, not evidence of a human-like subjective experience.
+A C++20 runtime for AI agents with durable state, bounded scheduling and
+recoverable model execution.
 
-This project originated as the runtime component for the **Physalia Gyre** research program, but it is built as an open, embeddable foundation for any developer creating durable AI systems.
+`cogg.cpp` stores an agent's state, memory, inbox and logical clock in SQLite.
+A model proposes a transition; the kernel checks its limits and commits accepted
+changes atomically to a SHA-256 history chain. After a process crash, the host
+can reopen the database and continue from the last committed state. Interrupted
+inference may run again and produce different text.
 
-If the host process is interrupted mid-generation, `cogg.cpp` can recover the last committed state, replay pending inbox events, restore a compatible KV cache or reconstruct the context, and allow the model to try again, leaving a verifiable cryptographic trail.
+**Status: experimental, v0.10.0.** The project originated in the Physalia Gyre
+research program and can be embedded independently. Logical clocks and stored
+self-state are runtime mechanisms; they do not establish subjective experience.
 
-## Core Concepts
+## What it provides
 
-* **Durable Subject:** Every agent (subject) has a monotonic logical clock and a SHA-256 commit chain. Memory, state, and inbox consumption are saved in atomic SQLite transactions.
-* **Autonomous Scheduling (Endogenous Time):** The model can request its next wake-up time. The kernel enforces admission budgets, minimum/maximum sleep intervals, and quotas, decoupling raw CPU time from the agent's subjective continuation.
-* **Crash-Resilient Inference:** Powered by an embedded `llama.cpp` backend. KV caches are persisted to disk and tied to specific commit hashes, enabling seamless warm/cold process restoration after a crash or eviction.
-* **Bounded Working Memory:** Typed deposits remain in durable history while the model receives a selected context. Open tasks, source-linked summaries and version-aware retrieval are checked by the kernel.
-* **Explicit Non-participation:** An executor can abstain without changing subject state. The host can supply source-linked evidence for another attempt at the same request.
-* **Optional Self-State:** A host policy preserves an application-defined profile and explicit commitments across model replacement, checking authorization before they change.
-* **Idempotent Inbox:** External events and messages queue safely and survive process exits.
+- **Durable transitions:** atomic state and inbox updates, idempotent input,
+  admission accounting and verifiable commit history.
+- **Bounded waking:** model-requested wake times constrained by host intervals
+  and attempt quotas.
+- **Memory:** typed deposits, protected open tasks, version-aware lexical
+  retrieval and source-linked compaction.
+- **Executor choices:** a native CPU [llama.cpp](https://github.com/ggml-org/llama.cpp)
+  adapter, optional Ollama/Chat Completions adapters, or a custom C++ backend.
+- **Recovery:** compatible native KV checkpoints can be restored; missing or
+  incompatible caches cause reconstruction from committed state. HTTP
+  executors reconstruct context and do not transfer native KV.
+- **Optional host modules:** guarded self-state, a separate terminal client
+  and host, and image observation with retained memory.
 
-## Relationship with llama.cpp
+## Build
 
-`cogg.cpp` uses the excellent [llama.cpp](https://github.com/ggerganov/llama.cpp) (`libllama`) for all tensor operations and local GGUF model inference. 
+Dependencies: C++20 compiler, CMake 3.20+, SQLite3 with FTS5, OpenSSL libcrypto
+and nlohmann/json 3.10+. CI runs on Ubuntu 24.04.
 
-What `cogg.cpp` adds architecturally on top of this inference engine is the **durable transition kernel**:
-* **State & Time:** While `llama.cpp` computes the next tokens, `cogg.cpp` manages the agent's lifecycle. It decides *when* the model is allowed to run, tracking its subjective time, and enforcing autonomous scheduling and quotas.
-* **Persistence:** `cogg.cpp` reserves attempts and commits accepted results in SQLite transactions; inference runs outside the write lock. It saves the model's memory, inbox events, and wake decisions to a cryptographically hashed commit chain.
-* **KV Cache Lifecycle:** `cogg.cpp` manages the persistence of `llama.cpp`'s KV cache to disk, tying specific cache blobs to exact commit hashes. A restarted process restores a compatible cache and reuses the matching canonical prefix. Missing, stale or incompatible caches trigger reconstruction from committed state. Interrupted generation may be repeated and may produce different text; checkpoint publication is separate from the SQLite commit.
-
-## Status
-
-**Current Version: 0.10.0 (Image perception host; Phase 7 kernel)**
-
-[Pre-perception stabilization](docs/STABILIZATION-2026-09-09.md) separates native KV namespaces and aligns adapter output limits.
-
-[Image perception](docs/PHASE-8.md) adds `/image PATH`: a configured vision organ
-observes a local PNG/JPEG, the actor answers and retains the observation in one
-subject commit, and later questions can recall it after restart. Audio remains open.
-
-The optional [terminal interface](docs/TUI.md) adds an independent `cogg-host` and
-`cogg-tui`: durable conversation, state, timeline, memory, commit inspection and
-explicit admission controls. Closing the terminal leaves the host running.
-Build with `-DCOGG_TUI=ON`; HTTP/Ollama and self-state remain separate options.
-
-The [0.8.1 repairs](docs/REPAIRS-2026-09-08.md) preserve routing after open-task capacity failures and report self-runtime transport, timeout and cancellation outcomes accurately.
-
-- [x] **Phase 0:** Durable kernel contract
-- [x] **Phase 1:** Local model build and inference (libllama)
-- [x] **Phase 2:** Durable checkpoint usage (KV cache)
-- [x] **Phase 3 mechanisms:** Explicit commit time and bounded model-requested scheduling
-- [ ] **Phase 3 validation:** Real 48-hour observation and state-dependent waking assessment; see [protocol](docs/PHASE-3.md)
-- [x] **Phase 4 mechanisms:** Typed deposits, bounded working context, retrieval and source-preserving compaction; [contract and evidence](docs/PHASE-4.md)
-- [x] **Phase 5:** Heterogeneous executors, isolated sessions, bounded routing and admission-bound emissions
-- [x] **Phase 6 mechanisms:** Typed abstention and bounded provenance inputs; [composition boundary](docs/PHASE-6.md)
-- [ ] **Phase 6 model quality:** Reliable evidence-aware participation across models; see [validation](docs/phase6-validation-20260908.json)
-- [x] **Phase 7 mechanisms:** Optional durable self-state and guarded commitments; [contract and model-switch example](docs/PHASE-7.md)
-- [ ] **Full Crystal integration:** Semantic self-model, drives and cognitive evaluation remain research work
-- [x] **Phase 8 image slice:** Explicit image → observation → answer and memory → recall after restart
-- [ ] **Phase 8 remaining:** Audio and broader multimodal composition/quality
-
-Subject signatures remain a planned cross-cutting capability. The detailed research roadmap is in [ARCHITECTURE.md](ARCHITECTURE.md#60-development-phases).
-
-For local GPU and API routing, see [Phase 5](docs/PHASE-5.md) and [the executor configuration](configs/phase5.example.json). Build with `-DCOGG_HTTP=ON` to enable Ollama/Chat Completions. [Infrastructure probes](docs/INFRASTRUCTURE.md) remain separate transport checks. Mac deployment is postponed.
-
-## Build Instructions
-
-**Dependencies:** C++20 compiler, CMake 3.20+, SQLite3 with FTS5, OpenSSL (`libcrypto`), and `nlohmann/json` 3.10+.
-The core runtime requires neither Python nor model services. Optional HTTP adapters require libcurl 7.85+ (`libcurl4-openssl-dev`); their offline tests use Python 3.
-
-**Debian/Ubuntu:**
 ```sh
 sudo apt-get install g++ cmake ninja-build libsqlite3-dev libssl-dev nlohmann-json3-dev
-
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j2
 ctest --test-dir build --output-on-failure
 ```
-*Use `-DCOGG_SANITIZE=ON` for ASan and UBSan. A Dockerfile (`Dockerfile.build`) is also provided.*
 
-## Quick Start: The CLI Demo
+The default build needs no model service. Python 3 enables additional process
+tests. [Dockerfile.build](Dockerfile.build) provides a Debian build environment.
 
-You can run the deterministic CLI demo using the compiled binary. The parameters define the agent's time limits (e.g., min wake 100ms, max 100 attempts per 60s).
+| CMake option | Enables |
+|---|---|
+| `COGG_LLAMA=ON` | Pinned native libllama backend; downloads its source at configure time |
+| `COGG_HTTP=ON` | Ollama and Chat Completions; requires libcurl 7.85+, Python 3 for tests |
+| `COGG_SELF=ON` | Host-authorized self-state policy |
+| `COGG_TUI=ON` | Linux host and terminal client; downloads pinned FTXUI |
+| `COGG_PERCEPTION=ON` | POSIX image host module; requires HTTP |
+| `COGG_SANITIZE=ON` | AddressSanitizer and UndefinedBehaviorSanitizer |
+
+Options default to OFF. See [validation](docs/VALIDATION.md) for the full CI
+configuration and real-model tests.
+
+## Try the CLI
+
+This demo uses a deterministic backend. Run it with a new database:
 
 ```sh
-# 1. Initialize a new agent database 
 ./build/cogg-cli init demo.db explorer 100 100 60000
-
-# 2. Send an external event to the agent's inbox
 ./build/cogg-cli send demo.db explorer greeting-1 "Hello, world!"
-
-# 3. Run the agent loop for 5 commits (or until budget exhausted)
 ./build/cogg-cli run demo.db explorer 5 100
-
-# 4. Inspect the resulting cryptographic commit chain
 ./build/cogg-cli inspect demo.db explorer
 ./build/cogg-cli verify demo.db explorer
 ```
 
-## Architecture & API
+For actual inference, follow [Local models](docs/LOCAL_MODELS.md) or
+[HTTP executors](docs/EXECUTORS.md). For an interactive session, see
+[Terminal interface](docs/TUI.md).
 
-The project is designed to be embeddable. The core C++ API (see `include/cogg/kernel.hpp`) separates storage, inference and coordination:
-* `cogg::Store`: Manages SQLite transactions, admission quotas, and cryptographic chain verification.
-* `cogg::Backend`: The abstract interface for model inference, with native libllama and optional HTTP implementations.
-* `cogg::Runtime`: Steps the subject forward with one backend.
-* `cogg::Registry` and `cogg::RoutedRuntime`: Own executor sessions and apply explicit routes while retaining one subject history.
-* Optional `cogg::SelfRuntime` (`-DCOGG_SELF=ON`): Applies host-issued self-state permissions before committing a model proposal; uses the existing database and memory.
+## Embed and explore
 
-For deeper technical dives and research notes, see the documentation in the `docs/` folder.
+The [embedding tutorial](docs/GETTING_STARTED.md) introduces `cogg::Store`,
+`cogg::Backend` and `cogg::Runtime`. Public headers live in
+[`include/cogg`](include/cogg). The [documentation index](docs/README.md) covers
+each implemented module; [ARCHITECTURE.md](ARCHITECTURE.md) preserves the broader
+research roadmap and includes proposals beyond the current implementation.
 
-## License
+Current limits include CPU-only native inference, lexical retrieval misses,
+model-dependent answer quality, and incomplete long-duration scheduling
+validation. Audio, subject signatures and broader cognitive integration remain
+research work. See [validation and limitations](docs/VALIDATION.md).
 
-MIT License. See [LICENSE](LICENSE) for details. Dependencies retain their own licenses.
+## Contributing and license
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and issue reports.
+MIT; see [LICENSE](LICENSE). Dependencies retain their own licenses.

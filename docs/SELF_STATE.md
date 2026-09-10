@@ -143,7 +143,7 @@ subject response. Use `status` and the verified `view` when presenting results.
 
 ## Evidence and remaining research
 
-See [the validation record](phase7-validation-20260908.json). Offline tests cover
+See [validation scope](VALIDATION.md). Offline tests cover
 unauthorized creation/settlement/profile changes, immutable terms, stale grants,
 reserved aliases, session/process replacement, killed inference, context pressure,
 abstention, late returns, concurrent commits, due-wake binding, and bypass detection.

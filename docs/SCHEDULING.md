@@ -93,7 +93,7 @@ Existing three-limit calls remain valid.
 ## 48-hour observation protocol
 
 Requires Python 3 on POSIX only for the harness; the C++ runtime does not require it.
-Use the pinned Qwen fixture and build settings from [Phase 1](PHASE-1.md).
+Use the pinned Qwen fixture and build settings from [Phase 1](LOCAL_MODELS.md).
 
 ```sh
 python3 tools/time_experiment.py run build/cogg-cli model.gguf experiments/time-48h

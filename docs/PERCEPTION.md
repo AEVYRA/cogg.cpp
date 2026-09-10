@@ -79,8 +79,8 @@ and read-only watch rejection. CI enables the module for Debug and ASan/UBSan.
 The live smoke tool is `tools/perception_smoke.py`; it creates a fresh subject,
 uses one supplied image, restarts the host and asks a follow-up without pixels.
 It requires explicit provider permission and never installs a service or retries
-failed inference automatically. Recorded results and limitations are in
-[phase8-validation-20260909.json](phase8-validation-20260909.json).
+failed inference automatically. The result is summarized below; see
+[validation scope](VALIDATION.md) for broader limits.
 
 The original smoke found a real usability defect: vision and retention worked,
 but the first actor transition was silent. Its initially optimistic harness
@@ -90,5 +90,4 @@ single scene is evidence for the integrated path, not general visual accuracy
 or a guarantee of reliable memory retrieval on every future question.
 
 Audio, video, native vision embeddings, automatic organ selection, semantic
-retrieval improvements and broader visual calibration remain open. The Phase 3
-48-hour pinned experiment is independent and must retain its old binary and DB.
+retrieval improvements and broader visual calibration remain open. The scheduling observation protocol is an independent validation task.
