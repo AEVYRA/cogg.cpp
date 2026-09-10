@@ -144,8 +144,10 @@ inference and kernel suites remain enabled.
 an admitted real model process at tick 0, recovers tick 1, restores its checkpoint
 in a new process at tick 2, corrupts it and reconstructs at tick 3, then deletes
 it and reconstructs at tick 4. Every stage verifies the same durable chain.
-Changing the context limit in a further process rejects the incompatible cache
-and commits tick 5 with a newly compatible checkpoint.
+Changing the context limit selects a separate executor/cache namespace. The
+process starts with no reused KV, commits tick 5 and writes a new checkpoint,
+while the prior namespace remains byte-for-byte unchanged. The native C++ suite
+also checks explicit rejection of incompatible metadata within a namespace.
 
 Local validation on 2026-09-07: all six suites passed in Release (176.97 s)
 and with ASan/UBSan (189.13 s); the three standalone core suites passed without

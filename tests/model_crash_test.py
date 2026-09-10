@@ -72,11 +72,17 @@ def main():
         run("send", db, "s", "missing-recovery", "Say hello briefly.")
         cold = json.loads(run(*command[1:]))
         assert cold["tick"] == 4 and cold["checkpoint"]["read"] == "missing"
+        # Context size is part of executor identity and therefore the cache namespace.
+        # A changed context starts cold without opening or replacing the prior cache.
+        old_cache = checkpoint.read_bytes()
+        old_paths = set(pathlib.Path(folder).glob("*.coggkv"))
         run("send", db, "s", "changed-context", "Say hello briefly.")
         changed = json.loads(run(*command[1:], "--ctx", "2048"))
-        assert changed["tick"] == 5 and changed["checkpoint"]["read"] == "rejected"
-        assert "compatibility" in changed["checkpoint"]["detail"]
-        assert changed["checkpoint"]["write"] == "saved"
+        assert changed["tick"] == 5 and changed["checkpoint"]["read"] == "missing", changed
+        assert changed["inference"]["reused_tokens"] == 0, changed
+        assert changed["checkpoint"]["write"] == "saved", changed
+        assert checkpoint.read_bytes() == old_cache, "changed context replaced the prior namespace"
+        assert len(set(pathlib.Path(folder).glob("*.coggkv")) - old_paths) == 1
         run("verify", db, "s")
         print(json.dumps({"result": "PASS", "killed_tick": 0, "recovered_tick": 1,
                           "restored_checkpoint_tick": 2, "corrupt_checkpoint_tick": 3,
