@@ -222,7 +222,7 @@ struct LlamaBackend::Impl {
             {"lifecycle", p.state.lifecycle},
             {"wake_at", p.state.wake_at ? json(*p.state.wake_at) : json(nullptr)},
             {"occasion", {{"id", p.occasion.id}, {"kind", p.occasion.kind}, {"payload", p.occasion.payload}}},
-            {"prior_unsettled_attempt", p.prior_unsettled_attempt}, {"temporal", p.temporal}};
+            {"prior_unsettled_attempt", p.prior_unsettled_attempt}, {"temporal", prompt_temporal(p)}};
         if (!p.memory_view.is_null()) {
             auto receipt = p.memory_view; receipt.erase("items");
             data["memory_view"] = receipt;

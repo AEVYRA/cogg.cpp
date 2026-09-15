@@ -23,6 +23,10 @@ struct MemoryPolicy {
     // 'balanced' interleaves lexical and recent lanes, preserving open tasks.
     // The other policies exist for comparisons; they do not protect tasks.
     std::string strategy = "balanced";
+    // Explicit, bounded recovery from task pressure. Only these current deposit
+    // IDs are shown as tasks; all remaining obligations stay open in storage.
+    // Set strategy="task_maintenance" and supply 1..8 IDs from open_tasks().
+    std::vector<std::string> maintenance_ids;
 };
 nlohmann::json memory_note_json(const MemoryNote &note);
 MemoryNote parse_memory_note(const nlohmann::json &note);

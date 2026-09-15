@@ -29,3 +29,5 @@ unimplemented proposals. Public C++ headers in [`include/cogg`](../include/cogg)
 and the implementation guides describe the current API.
 
 See [Contributing](../CONTRIBUTING.md) for changes and repository hygiene.
+
+- [Request recovery and memory budgets](EMBEDDING_RECOVERY.md): bounded reads, read-only stores and task maintenance.

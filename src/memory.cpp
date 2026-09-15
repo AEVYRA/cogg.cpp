@@ -72,8 +72,11 @@ void policy_ok(const MemoryPolicy &p) {
     need(p.max_bytes >= 256 && p.max_bytes <= 1048576 && p.max_items > 0 && p.max_items <= 256 &&
              p.candidate_limit >= p.max_items && p.candidate_limit <= 512 && p.query.size() <= 65536,
          "invalid memory policy");
-    need(p.strategy == "balanced" || p.strategy == "lexical" || p.strategy == "recent",
+    need(p.strategy == "balanced" || p.strategy == "lexical" || p.strategy == "recent" || p.strategy == "task_maintenance",
          "unknown memory strategy");
+    need(p.strategy == "task_maintenance" ? (!p.maintenance_ids.empty() && p.maintenance_ids.size() <= 8 &&
+         std::set<std::string>(p.maintenance_ids.begin(), p.maintenance_ids.end()).size() == p.maintenance_ids.size()) : p.maintenance_ids.empty(),
+         "maintenance requires 1..8 distinct source IDs and task_maintenance strategy");
 }
 // Quote each token: user input never becomes FTS boolean syntax or SQL.
 std::string terms(const std::string &s) {
@@ -266,6 +269,31 @@ void memory_apply(sqlite3 *db, const std::string &subject, const std::string &pa
         }
     }
 }
+void memory_transition(const Proposal& p, const json& admission) {
+    if (!admission.contains("context")) return;
+    const auto& view = admission.at("context").at("view");
+    if (view.at("strategy") != "task_maintenance") return;
+    need(p.memory.empty() && !p.wake_after_ms, "task maintenance cannot change legacy memory or schedule wakes");
+    for (const auto& n : p.notes) if (n.type == "task") {
+        bool found = false;
+        for (const auto& item : view.at("items")) {
+            const auto& old = item;
+            if (old.at("key") == n.key && old.at("text") == n.text && old.at("status") == "open" &&
+                (n.status == "closed" || n.status == "retracted") && n.sources.empty() && n.covers.empty()) found = true;
+        }
+        need(found, "maintenance may only settle named tasks with unchanged terms");
+    }
+}
+void memory_capacity(sqlite3* db, const Snapshot& snapshot, const json& admission) {
+    if (!admission.contains("capacity_policy")) return; // Historical admissions retain their original contract.
+    const auto& c = admission.at("capacity_policy");
+    need(c.at("schema") == "cogg:memory-capacity/v1", "unknown memory capacity contract");
+    MemoryPolicy policy;
+    policy.max_items = c.at("max_items"); policy.max_bytes = c.at("max_bytes");
+    policy.candidate_limit = std::max(policy.candidate_limit, policy.max_items);
+    Present next{snapshot, {"", "external", json::object()}};
+    project_memory(next, memory_candidates(db, snapshot.subject, policy), policy, {});
+}
 void memory_rebuild(sqlite3 *db, const std::string &subject) {
     Q links(db, "DELETE FROM memory_links WHERE subject=?");
     links.bind(1, subject).row();
@@ -289,7 +317,8 @@ void memory_verify(sqlite3 *db, const std::string &subject, bool compare) {
     sqlite3 *raw = nullptr;
     need(sqlite3_open(":memory:", &raw) == SQLITE_OK, "memory replay allocation failed");
     std::unique_ptr<sqlite3, decltype(&sqlite3_close)> replay(raw, sqlite3_close);
-    exec(raw, "CREATE TABLE subjects(id TEXT PRIMARY KEY);");
+    exec(raw, "CREATE TABLE subjects(id TEXT PRIMARY KEY,tick INTEGER NOT NULL);");
+    Q initial(raw, "INSERT INTO subjects VALUES(?,0)"); initial.bind(1, subject).row();
     memory_schema(raw);
     Q q(db, "SELECT id,body FROM commits WHERE subject=? ORDER BY tick");
     q.bind(1, subject);
@@ -298,7 +327,12 @@ void memory_verify(sqlite3 *db, const std::string &subject, bool compare) {
         if (b.at("tick") == 0)
             continue;
         auto p = parse_proposal(b.at("proposal"));
+        Q a(db, "SELECT body FROM attempts WHERE id=?"); a.bind(1, b.at("attempt").get<std::string>()); need(a.row(), "missing memory admission");
+        const auto admission = json::parse(a.str(0));
+        memory_transition(p, admission);
         memory_apply(raw, subject, b.at("parent"), b.at("tick"), q.str(0), p.notes);
+        Q update(raw, "UPDATE subjects SET tick=? WHERE id=?"); update.bind(1, b.at("tick").get<std::int64_t>()).bind(2, subject).row();
+        memory_capacity(raw, Snapshot{subject,b.at("tick"),q.str(0),b.at("memory"),std::nullopt,""}, admission);
     }
     if (compare) {
         const std::vector<std::string> queries = {
@@ -373,8 +407,17 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
         if (mandatory.size() > p.max_items)
             throw ContextOverflow("memory pressure: too many open tasks");
     }
+    if (p.strategy == "task_maintenance") {
+        for (const auto& id : p.maintenance_ids) {
+            auto entry = wire_at(db, subject, get(db, subject, id), at);
+            Q current(db, "SELECT current FROM memory_entries WHERE subject=? AND id=?");
+            current.bind(1, subject).bind(2, id); need(current.row() && current.num(0) == 1, "stale maintenance task");
+            need(entry.at("type") == "task" && entry.at("status") == "open", "maintenance source must be an open task");
+            mandatory.push_back(entry);
+        }
+    }
     auto query = terms(p.query);
-    if (!query.empty() && p.strategy != "recent") {
+    if (!query.empty() && p.strategy != "recent" && p.strategy != "task_maintenance") {
         Q q(db, "SELECT e.body FROM memory_fts JOIN memory_entries e ON e.id=memory_fts.id WHERE memory_fts "
                 "MATCH ? AND e.subject=? AND " +
                     (p.history ? "1" : current_filter) +
@@ -382,7 +425,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
         q.bind(1, query).bind(2, subject).bind(3, limit);
         collect(q, lex);
     }
-    if (p.strategy != "lexical") {
+    if (p.strategy != "lexical" && p.strategy != "task_maintenance") {
         Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " +
                     (p.history ? "1" : current_filter + " AND " + uncovered_filter) +
                     " ORDER BY e.tick DESC,e.id LIMIT ?");
@@ -427,6 +470,10 @@ void project_memory(Present &p, const json &candidates, const MemoryPolicy &poli
                      {"candidates", candidates.at("entries").size()},
                      {"items", json::array()},
                      {"omitted", true}};
+    if (policy.strategy == "task_maintenance") {
+        p.memory_view["maintenance_ids"] = policy.maintenance_ids;
+        p.memory_view["scope"] = "Only named tasks are visible. Other obligations remain open; this is not a complete task view.";
+    }
     auto valid = [&] {
         return p.working_memory.size() + p.memory_view.at("items").size() <= policy.max_items &&
                json({{"memory", p.working_memory}, {"view", p.memory_view}}).dump().size() <=

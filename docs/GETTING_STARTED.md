@@ -116,3 +116,9 @@ applies to both. Run this example in a fresh directory; repeating `create()` on
 an existing subject is an error. A reflection has empty `text`; use `speech`
 for outward text. Recovery preserves committed state, while interrupted inference
 may run again.
+
+## Recovering longer-running applications
+
+See [request recovery and memory budgets](EMBEDDING_RECOVERY.md) for targeted
+request receipts, paginated history, explicit retrieval queries and maintenance
+of a history whose open tasks exceed an executor’s memory budget.

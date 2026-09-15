@@ -267,7 +267,7 @@ struct HttpBackend::Impl {
             {"memory", p.working_memory.is_null() ? p.state.memory : p.working_memory},
             {"deposits", deposits}, {"memory_view", view},
             {"subject", p.state.subject}, {"tick", p.state.tick}, {"parent", p.state.head},
-            {"temporal", p.temporal}, {"prior_unsettled_attempt", p.prior_unsettled_attempt}, {"inputs", p.inputs},
+            {"temporal", prompt_temporal(p)}, {"prior_unsettled_attempt", p.prior_unsettled_attempt}, {"inputs", p.inputs},
             {"occasion", {{"id", p.occasion.id}, {"kind", p.occasion.kind}, {"payload", p.occasion.payload}}}};
         return json::array({{{"role", "system"}, {"content", instruction}}, {{"role", "user"}, {"content", data.dump()}}});
     }

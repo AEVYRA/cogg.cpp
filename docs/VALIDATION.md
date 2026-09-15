@@ -29,6 +29,14 @@ after another connection changes the index. The verifier refreshes FTS through
 an empty-phrase read within its verification snapshot before running
 `PRAGMA integrity_check`; checks remain enabled and corrupted indexes still fail.
 
+## Request recovery and capacity tests
+
+The `embedding-recovery` test covers read-only access, bounded request/history
+reads, capacity rejection without partial writes, named task maintenance and
+byte/item pressure. It also checks that prompt deduplication leaves the stored
+admission intact. See [embedding recovery](EMBEDDING_RECOVERY.md) for public API
+examples and the repeatable history benchmark.
+
 ## Native model tests
 
 Use the exact GGUF URL and SHA-256 in [llama.yml](../.github/workflows/llama.yml).

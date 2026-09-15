@@ -51,6 +51,9 @@ struct Present {
     json memory_view = nullptr; // Frozen retrieval receipt and source-addressed deposits.
     json inputs = json::array(); // Host-supplied evidence, frozen at admission; not memory writes.
 };
+// Prompt-only projection: replace a duplicate admission payload with a JSON pointer.
+// Stored admission/Present receipts remain complete.
+json prompt_temporal(const Present&);
 struct MemoryWrite { std::string key; json value; };
 struct Proposal {
     std::string kind = "null";
@@ -86,9 +89,11 @@ enum class CommitPoint { before_sql_commit, after_sql_commit };
 
 // Trusted host API. One Store connection per thread; independent connections
 // cooperate through SQLite transactions. Model adapters receive an Attempt/Present, never a Store.
+enum class OpenMode { read_write, read_only };
+
 class Store {
 public:
-    explicit Store(const std::string& path);
+    explicit Store(const std::string& path, OpenMode mode = OpenMode::read_write);
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
@@ -116,8 +121,15 @@ public:
     json duration(const std::string& subject, const std::string& from, const std::string& to);
     json timeline(const std::string& subject);
     json record(const std::string& id);
+    // A single SQLite read snapshot. Bounded attempts plus an exact count and
+    // the consuming commit; suitable for recovering an idempotent host request.
+    json request_trace(const std::string& subject, const std::string& key, std::size_t limit = 64);
+    // after_tick is exclusive; -1 includes genesis. expected_head prevents mixing pages.
+    json commits_page(const std::string& subject, std::int64_t after_tick = -1,
+                      std::size_t limit = 64, const std::string& expected_head = "");
     void verify(const std::string& subject);
     json recall(const std::string& subject, MemoryPolicy policy = {});
+    json open_tasks(const std::string& subject, const std::string& after_key = "", std::size_t limit = 8);
     void rebuild_memory(const std::string& subject);
     json memory_record(const std::string& subject, const std::string& id);
 private:

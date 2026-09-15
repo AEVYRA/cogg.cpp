@@ -5,6 +5,8 @@ namespace cogg::detail {
 void memory_schema(sqlite3 *db);
 void memory_apply(sqlite3 *db, const std::string &subject, const std::string &parent, std::int64_t tick,
                   const std::string &commit, const std::vector<MemoryNote> &notes);
+void memory_transition(const Proposal&, const json& admission);
+void memory_capacity(sqlite3*, const Snapshot&, const json& admission);
 void memory_verify(sqlite3 *db, const std::string &subject, bool compare_index);
 void memory_rebuild(sqlite3 *db, const std::string &subject);
 json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPolicy &policy);

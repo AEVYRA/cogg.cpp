@@ -19,6 +19,7 @@ struct SelfResult {
     json outcome = nullptr;
     std::optional<Snapshot> snapshot;
     std::string maintenance_error;
+    json schedule = nullptr;
 };
 class SelfRuntime {
 public:

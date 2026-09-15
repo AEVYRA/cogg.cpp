@@ -126,6 +126,17 @@ struct Transaction {
 };
 } // namespace
 
+json prompt_temporal(const Present& present) {
+    auto temporal = present.temporal;
+    if (temporal.contains("admission") && temporal.at("admission").contains("occasion")) {
+        auto& occasion = temporal["admission"]["occasion"];
+        if (occasion.is_object() && occasion.contains("payload") && occasion.at("payload") == present.occasion.payload) {
+            occasion.erase("payload"); occasion["payload_ref"] = "/occasion/payload";
+        }
+    }
+    return temporal;
+}
+
 json proposal_json(const Proposal& p) {
     validate(p);
     json writes = json::array();
@@ -167,6 +178,12 @@ Proposal parse_proposal(const json& j) {
     validate(p); return p;
 }
 
+namespace {
+struct BudgetHistory {
+    std::vector<std::int64_t> seq;
+    std::vector<millis> at;
+};
+}
 struct Store::Impl {
     sqlite3* db = nullptr;
     ~Impl() { if (db) sqlite3_close(db); }
@@ -193,29 +210,44 @@ struct Store::Impl {
     // Every admission spends quota, regardless of its eventual settlement. The
     // watermark makes a committed wake decision replayable after later attempts.
     json budget(const std::string& subject, const json& limits, millis now,
-                std::int64_t through = std::numeric_limits<std::int64_t>::max()) {
+                std::int64_t through = std::numeric_limits<std::int64_t>::max(),
+                const BudgetHistory* history = nullptr) {
         const auto period = limits.at("period_ms").get<millis>();
         const auto lower = now >= period ? now - period : -1;
-        Statement q(db, "SELECT admitted_at,seq FROM attempts WHERE subject=? AND seq<=? ORDER BY seq");
-        q.bind(1, subject).bind(2, through);
-        std::vector<millis> active;
-        std::optional<millis> last;
+        const auto cap = limits.at("max_attempts").get<std::size_t>();
+        std::optional<millis> last, quota_source;
         std::int64_t watermark = 0;
-        while (q.row()) {
-            last = q.number(0); watermark = q.number(1);
-            if (*last > lower) active.push_back(*last);
+        std::size_t used = 0;
+        if (history) {
+            const auto end = static_cast<std::size_t>(std::upper_bound(history->seq.begin(), history->seq.end(), through) - history->seq.begin());
+            const auto begin = static_cast<std::size_t>(std::upper_bound(history->at.begin(), history->at.begin() + static_cast<std::ptrdiff_t>(end), lower) - history->at.begin());
+            used = end - begin;
+            if (end) { last = history->at[end - 1]; watermark = history->seq[end - 1]; }
+            if (used >= cap) quota_source = history->at[end - cap];
+        } else {
+            Statement tail(db, "SELECT admitted_at,seq FROM attempts WHERE subject=? AND seq<=? ORDER BY seq DESC LIMIT 1");
+            tail.bind(1, subject).bind(2, through);
+            if (tail.row()) { last = tail.number(0); watermark = tail.number(1); }
+            Statement count(db, "SELECT count(*) FROM attempts WHERE subject=? AND admitted_at>? AND seq<=?");
+            count.bind(1, subject).bind(2, lower).bind(3, through); count.row();
+            used = static_cast<std::size_t>(count.number(0));
+            if (used >= cap) {
+                Statement kth(db, "SELECT admitted_at FROM attempts WHERE subject=? AND admitted_at>? AND seq<=? ORDER BY admitted_at DESC,seq DESC LIMIT 1 OFFSET ?");
+                kth.bind(1, subject).bind(2, lower).bind(3, through).bind(4, static_cast<std::int64_t>(cap - 1));
+                require(kth.row(), "budget source missing"); quota_source = kth.number(0);
+            }
         }
         millis floor_at = now, quota_at = now;
         if (last) floor_at = std::max(now, add(*last, limits.at("min_wake_ms").get<millis>()));
-        const auto cap = limits.at("max_attempts").get<std::size_t>();
-        if (active.size() >= cap) quota_at = add(active[active.size() - cap], period);
-        return {{"used", active.size()}, {"limit", cap}, {"period_ms", period},
+        if (quota_source) quota_at = add(*quota_source, period);
+        return {{"used", used}, {"limit", cap}, {"period_ms", period},
                 {"through_seq", watermark}, {"floor_at", floor_at}, {"quota_at", quota_at},
                 {"eligible_at", std::max(floor_at, quota_at)}};
     }
     json wake_plan(const std::string& subject, const json& limits, const Proposal& p,
-                   millis now, std::int64_t through = std::numeric_limits<std::int64_t>::max()) {
-        const auto b = budget(subject, limits, now, through);
+                   millis now, std::int64_t through = std::numeric_limits<std::int64_t>::max(),
+                   const BudgetHistory* history = nullptr) {
+        const auto b = budget(subject, limits, now, through, history);
         json reasons = json::array();
         std::optional<millis> requested, granted;
         if (p.wake_after_ms) {
@@ -296,9 +328,9 @@ struct Store::Impl {
     }
 };
 
-Store::Store(const std::string& path) : impl_(std::make_unique<Impl>()) {
+Store::Store(const std::string& path, OpenMode mode) : impl_(std::make_unique<Impl>()) {
     require(path != ":memory:" && !path.empty(), "a durable database path is required");
-    if (sqlite3_open_v2(path.c_str(), &impl_->db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE |
+    if (sqlite3_open_v2(path.c_str(), &impl_->db, (mode == OpenMode::read_only ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) |
                         SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK)
         throw Error(sqlite3_errmsg(impl_->db));
     auto* db = impl_->db;
@@ -311,6 +343,14 @@ Store::Store(const std::string& path) : impl_(std::make_unique<Impl>()) {
             Statement tables(db, "SELECT count(*) FROM sqlite_master WHERE type='table'");
             tables.row(); require(tables.number(0) == 0, "nonempty unrecognized database");
         }
+    }
+    if (mode == OpenMode::read_only) {
+        Statement q(db, "PRAGMA application_id"); q.row();
+        require(q.number(0) == 1129269063, "not a cogg database");
+        Statement v(db, "PRAGMA user_version"); v.row();
+        require(v.number(0) == 5, "read-only open requires schema 5; migrate explicitly with a writable host");
+        sql(db, "PRAGMA query_only=ON; PRAGMA foreign_keys=ON;");
+        return;
     }
     sql(db, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
     Transaction tx(db);
@@ -333,6 +373,8 @@ CREATE TABLE IF NOT EXISTS attempts(
  subject TEXT NOT NULL REFERENCES subjects(id), parent TEXT NOT NULL,
  occasion TEXT NOT NULL REFERENCES occasions(id), admitted_at INTEGER NOT NULL,
  body TEXT NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS attempts_subject_seq ON attempts(subject,seq);
+CREATE INDEX IF NOT EXISTS attempts_occasion ON attempts(subject,occasion,seq);
 CREATE INDEX IF NOT EXISTS attempts_budget ON attempts(subject,admitted_at);
 CREATE TABLE IF NOT EXISTS commits(
  id TEXT PRIMARY KEY, subject TEXT NOT NULL REFERENCES subjects(id),
@@ -420,6 +462,8 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
         auto candidates = detail::memory_candidates(db, subject, policy);
         detail::project_memory(present, candidates, policy, fits);
         body["context"] = {{"memory", present.working_memory}, {"view", present.memory_view}};
+        if (policy.strategy == "balanced") body["capacity_policy"] = {{"schema", "cogg:memory-capacity/v1"},
+            {"max_items", policy.max_items}, {"max_bytes", policy.max_bytes}};
     }
     if (fits && !fits(present)) throw ContextOverflow("admitted context exceeds backend capacity");
     const auto id = hash(body);
@@ -474,6 +518,7 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
                  {"wall_observed_at", observed}, {"wake_plan", plan},
                  {"inference_elapsed_ms", optional_time(inference_elapsed_ms)}, {"emission", emission}};
     auto id = hash(body);
+    detail::memory_transition(proposal, a);
     detail::memory_apply(db, subject, s.head, tick, id, proposal.notes);
     Statement insert(db, "INSERT INTO commits VALUES(?,?,?,?)");
     insert.bind(1, id).bind(2, subject).bind(3, tick).bind(4, body.dump()).done();
@@ -481,6 +526,7 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     head.bind(1, tick).bind(2, id).bind(3, memory.dump()).bind(4, optional_time(wake).dump())
         .bind(5, now).bind(6, subject).bind(7, s.head).done();
     require(sqlite3_changes(db) == 1, "head update failed");
+    detail::memory_capacity(db, Snapshot{subject,tick,id,memory,wake,""}, a);
     Statement consumed(db, "UPDATE occasions SET consumed=? WHERE id=? AND consumed IS NULL");
     consumed.bind(1, id).bind(2, oid).done();
     require(sqlite3_changes(db) == 1, "occasion update failed");
@@ -560,6 +606,55 @@ json Store::timeline(const std::string& subject) {
                                                 {"consumed", e.text(2)}});
     tx.commit(); return result;
 }
+json Store::request_trace(const std::string& subject, const std::string& key, std::size_t limit) {
+    require(limit > 0 && limit <= 256, "request trace limit must be 1..256");
+    auto* db = impl_->db; Transaction tx(db, false);
+    auto state = impl_->snapshot(subject);
+    json out = {{"subject", subject}, {"head", state.head}, {"tick", state.tick},
+        {"occasions", json::array()}, {"attempts", json::array()}, {"commits", json::array()},
+        {"abstentions", json::array()}, {"attempt_count", 0}, {"truncated", false}};
+    Statement o(db, "SELECT id,body,consumed FROM occasions WHERE subject=? AND key=?");
+    o.bind(1, subject).bind(2, "user:" + key);
+    if (o.row()) {
+        auto oid = o.text(0);
+        out["occasions"].push_back({{"id", oid}, {"body", json::parse(o.text(1))}, {"consumed", o.text(2)}});
+        if (!o.text(2).empty()) out["commits"].push_back({{"id", o.text(2)}, {"body", record(o.text(2))}});
+        Statement count(db, "SELECT count(*) FROM attempts WHERE subject=? AND occasion=?");
+        count.bind(1, subject).bind(2, oid); count.row();
+        out["attempt_count"] = count.number(0); out["truncated"] = count.number(0) > static_cast<std::int64_t>(limit);
+        Statement a(db, "SELECT id,body,status,error FROM attempts WHERE subject=? AND occasion=? ORDER BY seq DESC LIMIT ?");
+        a.bind(1, subject).bind(2, oid).bind(3, static_cast<std::int64_t>(limit));
+        while (a.row()) {
+            out["attempts"].push_back({{"id", a.text(0)}, {"body", json::parse(a.text(1))}, {"status", a.text(2)}, {"error", a.text(3)}});
+            Statement b(db, "SELECT id,body FROM abstentions WHERE attempt=?"); b.bind(1, a.text(0));
+            if (b.row()) out["abstentions"].push_back({{"id", b.text(0)}, {"body", json::parse(b.text(1))}});
+        }
+    }
+    out["schedule"] = impl_->schedule(subject, wall_now());
+    tx.commit(); return out;
+}
+json Store::open_tasks(const std::string& subject, const std::string& after, std::size_t limit) {
+    require(limit > 0 && limit <= 256, "task page limit must be 1..256");
+    auto* db = impl_->db; Transaction tx(db, false); const auto state = impl_->snapshot(subject);
+    Statement q(db, "SELECT key,body FROM memory_entries WHERE subject=? AND current=1 AND key>? AND json_extract(body,'$.note.type')='task' AND json_extract(body,'$.note.status')='open' ORDER BY key LIMIT ?");
+    q.bind(1,subject).bind(2,after).bind(3,static_cast<std::int64_t>(limit + 1));
+    json items = json::array(); auto cursor = after; bool more = false;
+    while (q.row()) {
+        if (items.size() == limit) { more = true; break; }
+        items.push_back(json::parse(q.text(1))); cursor = q.text(0);
+    }
+    tx.commit(); return {{"head",state.head},{"items",items},{"next_after_key",cursor},{"has_more",more}};
+}
+json Store::commits_page(const std::string& subject, std::int64_t after, std::size_t limit, const std::string& expected_head) {
+    require(after >= -1 && limit > 0 && limit <= 256, "invalid history page bounds");
+    auto* db = impl_->db; Transaction tx(db, false); auto state = impl_->snapshot(subject);
+    if (!expected_head.empty() && state.head != expected_head) throw Conflict("history page head changed");
+    json items = json::array(); auto cursor = after;
+    Statement c(db, "SELECT id,body,tick FROM commits WHERE subject=? AND tick>? ORDER BY tick LIMIT ?");
+    c.bind(1, subject).bind(2, after).bind(3, static_cast<std::int64_t>(limit));
+    while (c.row()) { items.push_back({{"id", c.text(0)}, {"body", json::parse(c.text(1))}}); cursor = c.number(2); }
+    tx.commit(); return {{"head", state.head}, {"items", items}, {"next_after_tick", cursor}, {"has_more", cursor < state.tick}};
+}
 void Store::verify(const std::string& subject) { verify_impl(subject, true); }
 void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     auto* db = impl_->db;
@@ -583,6 +678,15 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     std::int64_t tick = 0;
     std::set<std::string> chain;
     millis committed_wall = 0;
+    BudgetHistory history;
+    {
+        Statement rows(db, "SELECT seq,admitted_at FROM attempts WHERE subject=? ORDER BY seq");
+        rows.bind(1, subject);
+        while (rows.row()) {
+            require(rows.number(1) >= 0 && (history.at.empty() || rows.number(1) >= history.at.back()), "nonmonotonic admission clock");
+            history.seq.push_back(rows.number(0)); history.at.push_back(rows.number(1));
+        }
+    }
     Statement q(db, "SELECT id,tick,body FROM commits WHERE subject=? ORDER BY tick"); q.bind(1, subject);
     while (q.row()) {
         auto b = json::parse(q.text(2));
@@ -629,7 +733,7 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
             } else {
                 const auto& saved = b.at("wake_plan");
                 const auto replay = impl_->wake_plan(subject, impl_->config(subject), p, at,
-                    saved.at("budget").at("through_seq").get<std::int64_t>());
+                    saved.at("budget").at("through_seq").get<std::int64_t>(), &history);
                 require(saved == replay, "wake decision replay mismatch");
                 wake = read_time(replay.at("granted_at"));
             }
@@ -667,7 +771,7 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
         require(event.at("subject") == subject, "foreign admitted occasion");
         if (b.at("schema").get<int>() >= 2) {
             const auto at = attempts.number(4);
-            const auto expected = impl_->budget(subject, impl_->config(subject), at, attempts.number(6) - 1);
+            const auto expected = impl_->budget(subject, impl_->config(subject), at, attempts.number(6) - 1, &history);
             const auto& temporal = b.at("temporal");
             require(expected == temporal.at("admission").at("budget") && expected.at("eligible_at").get<millis>() <= at,
                     "admission budget replay mismatch");

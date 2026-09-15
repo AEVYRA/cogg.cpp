@@ -183,6 +183,7 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
     if (cancelled && cancelled()) { result.status = "cancelled"; return result; }
     json view; auto state = replay(store_, subject, view);
     const auto schedule = store_.schedule(subject, now);
+    result.schedule = schedule;
     if (schedule.at("occasion").is_null()) { result.status = "waiting"; return result; }
     const auto occasion = schedule.at("occasion").at("id");
     auto g = grant.is_null() ? self_grant(view, occasion) : grant;
@@ -227,7 +228,8 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
         const auto& p = std::get<Proposal>(outcome);
         // Store clamps commit wall against admission and monotonic inference duration.
         result.snapshot = store_.commit(a->id, p, now, {}, duration, make_emission(*a, execution_, p, backend_.telemetry()));
-    } catch (const Conflict&) { fail("conflict"); return result; }
+    } catch (const ContextOverflow&) { fail("memory_pressure"); return result; }
+    catch (const Conflict&) { fail("conflict"); return result; }
     catch (...) { fail("commit_rejected"); throw; }
     result.status = "committed";
     try { backend_.committed(a->present, *result.snapshot); }

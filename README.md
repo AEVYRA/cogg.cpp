@@ -12,7 +12,7 @@ changes atomically to a SHA-256 history chain. After a process crash, the host
 can reopen the database and continue from the last committed state. Interrupted
 inference may run again and produce different text.
 
-**Status: experimental, v0.10.0.** The project originated in the Physalia Gyre
+**Status: experimental, v0.11.0.** The project originated in the Physalia Gyre
 research program and can be embedded independently. Logical clocks and stored
 self-state are runtime mechanisms; they do not establish subjective experience.
 
@@ -31,6 +31,13 @@ self-state are runtime mechanisms; they do not establish subjective experience.
   executors reconstruct context and do not transfer native KV.
 - **Optional host modules:** guarded self-state, a separate terminal client
   and host, and image observation with retained memory.
+
+## Embedding improvements in v0.11
+
+Recover one request by its idempotency key, read bounded history pages, open a
+database read-only, and explicitly recover from task memory pressure. See
+[request recovery and memory budgets](docs/EMBEDDING_RECOVERY.md) for examples.
+Existing schema-5 histories keep their original records.
 
 ## Build
 
