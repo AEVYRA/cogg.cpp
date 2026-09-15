@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
+import os
 
 
 def main():
@@ -17,7 +19,7 @@ def main():
         def run(*args):
             result = subprocess.run([cli, *args], capture_output=True, text=True, timeout=120)
             if result.returncode:
-                raise RuntimeError(result.stderr[-2000:])
+                raise RuntimeError(f"CLI operation {args[0]} exited {result.returncode}: stdout={result.stdout[-2000:]!r}; stderr={result.stderr[-2000:]!r}")
             return result.stdout
 
         run("init", db, "s", "1", "100", "3600000")
@@ -35,7 +37,7 @@ def main():
                         child.wait(timeout=10)
                         break
                     if child.poll() is not None:
-                        raise RuntimeError("child exited before admitted inference could be killed")
+                        raise RuntimeError("child exited before admitted inference could be killed: " + (pathlib.Path(folder) / "child.log").read_text()[-2000:])
                     time.sleep(0.005)
                 else:
                     raise RuntimeError("child never admitted inference")
@@ -91,4 +93,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Keep the exact failure visible through public check annotations as well
+        # as the full runner log; never replace a failed probe with a pass.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            detail = traceback.format_exc().replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print("::error title=Native process recovery::" + detail, flush=True)
+        raise
