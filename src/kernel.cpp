@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <map>
 #include <set>
 
 namespace cogg {
@@ -672,11 +673,13 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     require(integrity_result == "ok", "SQLite integrity failure: " + integrity_result);
     Statement fk(db, "PRAGMA foreign_key_check"); require(!fk.row(), "foreign key failure");
     auto s = impl_->snapshot(subject);
+    // Loop invariants: one parse of limits and clock instead of one per record.
+    const auto limits = impl_->config(subject);
     json memory = json::object();
     std::optional<millis> wake;
     std::string head;
     std::int64_t tick = 0;
-    std::set<std::string> chain;
+    std::map<std::string, std::int64_t> chain; // verified commit id -> tick
     millis committed_wall = 0;
     BudgetHistory history;
     {
@@ -697,7 +700,7 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
             check_time(committed_wall);
             memory = b.at("memory");
             require(memory.is_object() && memory.dump().size() <= max_state, "invalid genesis memory");
-            require(b.at("parent").is_null() && b.at("limits") == impl_->config(subject) &&
+            require(b.at("parent").is_null() && b.at("limits") == limits &&
                     b.at("memory") == memory && b.at("wake_at").is_null(), "genesis mismatch");
         } else {
             require(b.at("parent") == head, "broken commit parent");
@@ -729,20 +732,21 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
             }
             if (b.at("schema") == 1) {
                 wake = p.wake_after_ms ? std::optional<millis>(add(at, std::max(*p.wake_after_ms,
-                    impl_->config(subject).at("min_wake_ms").get<millis>()))) : std::nullopt;
+                    limits.at("min_wake_ms").get<millis>()))) : std::nullopt;
             } else {
                 const auto& saved = b.at("wake_plan");
-                const auto replay = impl_->wake_plan(subject, impl_->config(subject), p, at,
+                const auto replay = impl_->wake_plan(subject, limits, p, at,
                     saved.at("budget").at("through_seq").get<std::int64_t>(), &history);
                 require(saved == replay, "wake decision replay mismatch");
                 wake = read_time(replay.at("granted_at"));
             }
             require(b.at("wake_at") == optional_time(wake), "wake replay mismatch");
         }
-        head = q.text(0); chain.insert(head); ++tick;
+        head = q.text(0); chain.emplace(head, tick); ++tick;
     }
     require(tick > 0 && s.tick == tick - 1 && s.head == head && s.memory == memory && s.wake_at == wake,
             "subject projection differs from committed history");
+    const auto clock = impl_->clock(subject);
     Statement events(db, "SELECT id,body,key,kind,parent,consumed FROM occasions WHERE subject=?");
     events.bind(1, subject);
     while (events.row()) {
@@ -771,13 +775,14 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
         require(event.at("subject") == subject, "foreign admitted occasion");
         if (b.at("schema").get<int>() >= 2) {
             const auto at = attempts.number(4);
-            const auto expected = impl_->budget(subject, impl_->config(subject), at, attempts.number(6) - 1, &history);
+            const auto expected = impl_->budget(subject, limits, at, attempts.number(6) - 1, &history);
             const auto& temporal = b.at("temporal");
             require(expected == temporal.at("admission").at("budget") && expected.at("eligible_at").get<millis>() <= at,
                     "admission budget replay mismatch");
-            require(temporal.at("clock") == impl_->clock(subject) && temporal.at("coordinate") == b.at("tick"),
+            require(temporal.at("clock") == clock && temporal.at("coordinate") == b.at("tick"),
                     "admission clock mismatch");
-            require(record(attempts.text(2)).at("tick") == b.at("tick"), "admission coordinate mismatch");
+            // The parent is in the verified chain above; its tick needs no re-read and re-hash.
+            require(chain.at(attempts.text(2)) == b.at("tick"), "admission coordinate mismatch");
             if (event.at("kind") == "scheduled")
                 require(b.at("wall_observed_at").get<millis>() >= event.at("payload").at("due_at").get<millis>(),
                         "scheduled wake admitted before physical deadline");

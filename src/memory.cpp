@@ -190,6 +190,7 @@ void memory_schema(sqlite3 *db) {
 CREATE TABLE IF NOT EXISTS memory_entries(id TEXT PRIMARY KEY,subject TEXT NOT NULL REFERENCES subjects(id),key TEXT NOT NULL,tick INTEGER NOT NULL,commit_id TEXT NOT NULL,body TEXT NOT NULL,current INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS memory_current ON memory_entries(subject,current,tick);
 CREATE INDEX IF NOT EXISTS memory_keys ON memory_entries(subject,key,tick);
+CREATE INDEX IF NOT EXISTS memory_key_current ON memory_entries(subject,key,current);
 CREATE TABLE IF NOT EXISTS memory_links(subject TEXT NOT NULL,note TEXT NOT NULL,source TEXT NOT NULL,covers INTEGER NOT NULL,PRIMARY KEY(note,source));
 CREATE INDEX IF NOT EXISTS memory_sources ON memory_links(source);
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(id UNINDEXED,subject UNINDEXED,key,text,tokenize='unicode61');
@@ -247,7 +248,7 @@ void memory_apply(sqlite3 *db, const std::string &subject, const std::string &pa
         auto id = digest({{"parent", parent}, {"index", index++}, {"note", note}});
         auto body = json{{"id", id},         {"subject", subject},   {"tick", tick},
                          {"commit", commit}, {"previous", previous}, {"note", note}};
-        Q update(db, "UPDATE memory_entries SET current=0 WHERE subject=? AND key=?");
+        Q update(db, "UPDATE memory_entries SET current=0 WHERE subject=? AND key=? AND current=1");
         update.bind(1, subject).bind(2, n.key).row();
         Q insert(db, "INSERT INTO memory_entries VALUES(?,?,?,?,?,?,1)");
         insert.bind(1, id)
