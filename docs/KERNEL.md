@@ -64,9 +64,13 @@ message waited behind it.
 `Store::fail(attempt, reason, scope, now)` settles a failure with a scope.
 `transient` failures (transport, timeout, credentials, cancellation, conflicts
 and memory pressure) never count against the occasion: an outage or a full
-memory must not discard a healthy message. `occasion` failures (invalid output,
-a generic backend failure, a proposal the kernel or a host policy rejects) are
-recorded in `occasion_failures`. When an occasion reaches
+memory must not discard a healthy message. Unknown backend exceptions and
+unclassified commit/storage failures are also transient. The provided runtimes
+count explicitly classified invalid output, malformed returned outcomes, and
+known self-policy rejections as `occasion` failures. A host can explicitly
+classify another known rejection through this API; it must not infer blame
+from a generic exception or an HTTP status alone. Counted failures are recorded
+in `occasion_failures` when disposition is enabled. When an occasion reaches
 `Limits::max_occasion_failures` (default 3 for new subjects; 0 disables), the
 kernel commits a host-authored null transition in the same transaction:
 
@@ -74,8 +78,10 @@ kernel commits a host-authored null transition in the same transaction:
 - a `disposition` record (`cogg:disposition/v1`) lists exactly the counted
   failed attempts and the limit. Failure reasons stay in the attempts table;
   provider messages never enter the hashed history;
-- a pending future wake is preserved, except when the disposed occasion is
-  itself the scheduled wake or a task-maintenance admission;
+- a pending future wake is requested again, subject to the existing minimum
+  interval and quota policy; this may postpone a near deadline. No new wake is
+  requested when the occasion is itself the scheduled wake or a task-maintenance
+  admission; the resulting state waits for external input;
 - the occasion is consumed, so the next message is admitted.
 
 The disposition is part of the subject's history, not a silent drop, and
@@ -86,7 +92,16 @@ runtimes classify failures this way; `Runtime::last_disposition()`,
 report a settlement. The two-argument `fail` remains a transient failure.
 Subjects created before this field existed have no limit and keep their genesis
 bytes. A history containing a routed disposition needs a verifier from this
-revision or later.
+revision or later. The limit counts attempts, including attempts across executors;
+it does not prove that every possible executor would fail. Configure it together
+with the route, or use zero when all retries require explicit host resolution.
+The two-argument `fail` remains a non-disposing failure operation.
+
+Cancellation and elapsed deadlines take precedence over returned/throwing
+backend outcomes. Native model output-limit and schema failures are classified
+explicitly; allocation, decode and other unknown faults retain the occasion.
+A capacity failure while recording a disposition leaves the input pending;
+unexpected storage/integrity errors propagate and roll back the entire operation.
 
 The durable lifecycle describes the next waiting mode. Live execution activity
 is represented by reservations, not by pretending `deliberating` survives a dead
@@ -96,7 +111,9 @@ process. CLI polling uses a short sleep and does not write on every idle poll.
 
 `Runtime` and `RoutedRuntime` verify a subject before their first admission for
 it; later steps rely on the head-checked commit path. Call `Store::verify` for a
-full forensic check. The verifier checks
+full forensic check. This runtime-local cache assumes subsequent writers use the
+trusted Store API; it is not a persistent verified-prefix cache or detection of
+out-of-band file changes. Reopening a runtime verifies again. The verifier checks
 SQLite integrity/FKs, record hashes, chain parents/ticks, occasion/attempt refs,
 and replayed memory and wake state against the persisted subject projection.
 It detects inconsistent records; it does not authenticate a chain rewritten by

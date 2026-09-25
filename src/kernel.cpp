@@ -604,14 +604,15 @@ std::optional<Snapshot> Store::fail(const std::string& attempt, const std::strin
     if (scope == FailureScope::transient) { mark_failed(); tx.commit(); return std::nullopt; }
     const auto subject = a.at("subject").get<std::string>();
     const auto oid = a.at("occasion").get<std::string>();
-    Statement record_failure(db, "INSERT INTO occasion_failures VALUES(?,?,?)");
-    record_failure.bind(1, attempt).bind(2, oid).bind(3, error).done();
     const auto limits = impl_->config(subject);
     const auto cap = limits.value("max_occasion_failures", std::int64_t{0});
+    if (cap == 0) { mark_failed(); tx.commit(); return std::nullopt; }
+    Statement record_failure(db, "INSERT INTO occasion_failures VALUES(?,?,?)");
+    record_failure.bind(1, attempt).bind(2, oid).bind(3, error).done();
     json failures = json::array();
     Statement f(db, "SELECT f.attempt FROM occasion_failures f JOIN attempts a ON a.id=f.attempt "
-                    "WHERE f.occasion=? AND f.attempt!=? ORDER BY a.seq");
-    f.bind(1, oid).bind(2, attempt);
+                    "WHERE f.occasion=? AND f.attempt!=? ORDER BY a.seq LIMIT ?");
+    f.bind(1, oid).bind(2, attempt).bind(3, cap - 1);
     while (f.row()) failures.push_back(f.text(0));
     failures.push_back(attempt);
     const auto s = impl_->snapshot(subject);
@@ -620,9 +621,7 @@ std::optional<Snapshot> Store::fail(const std::string& attempt, const std::strin
     const bool settle = cap > 0 && static_cast<std::int64_t>(failures.size()) >= cap &&
                         s.head == a.at("parent").get<std::string>() && consumed.text(0).empty();
     if (!settle) { mark_failed(); tx.commit(); return std::nullopt; }
-    // The disposition lists exactly `cap` failures: the earliest ones plus this attempt.
-    if (static_cast<std::int64_t>(failures.size()) > cap)
-        failures.erase(failures.begin() + (cap - 1), failures.end() - 1);
+    // The bounded query selects the earliest cap-1 failures plus this attempt.
     Proposal settlement; // kind null: no text, memory, notes or model emission.
     const auto e = impl_->event(oid);
     const bool maintenance = a.contains("context") &&
@@ -643,14 +642,15 @@ std::optional<Snapshot> Store::fail(const std::string& attempt, const std::strin
         auto result = commit_locked(attempt, settlement, now, std::nullopt, nullptr, disposition);
         sql(db, "RELEASE disposition");
         tx.commit(); return result;
-    } catch (const std::exception&) {
-        // Settlement is best effort (for example memory pressure); the failure itself is kept.
+    } catch (const ContextOverflow&) {
+        // Capacity pressure leaves the input pending. Storage/integrity errors
+        // instead propagate and roll back the whole failure transaction.
         sql(db, "ROLLBACK TO disposition; RELEASE disposition");
         mark_failed(); tx.commit(); return std::nullopt;
     }
 }
 FailureScope failure_scope(FailureKind kind) {
-    return kind == FailureKind::invalid_output || kind == FailureKind::backend ?
+    return kind == FailureKind::invalid_output ?
         FailureScope::occasion : FailureScope::transient;
 }
 json Store::schedule(const std::string& subject, millis now) {
@@ -966,6 +966,7 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now, co
     Snapshot result;
     try {
         auto outcome = backend_.respond_attempt(*a, 3600000, {});
+        validate_backend_outcome(outcome);
         if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
             store_.abstain(a->id, *abstention, backend_.telemetry());
             abstention_ = *abstention; return std::nullopt;
@@ -983,9 +984,11 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now, co
         // Memory pressure is cured by maintenance, never by discarding the message.
         fail_scoped(a->id, e.what(), FailureScope::transient, now, started); throw;
     } catch (const std::exception& e) {
-        // Anything else (a throwing backend, a rejected proposal) is attributed to
-        // the occasion; the transient kinds above cover infrastructure failures.
-        fail_scoped(a->id, e.what(), FailureScope::occasion, now, started); throw;
+        // Unknown backend, storage and commit failures are not evidence against
+        // the occasion. Hosts may explicitly classify a known policy rejection.
+        fail_scoped(a->id, e.what(), FailureScope::transient, now, started); throw;
+    } catch (...) {
+        fail_scoped(a->id, "backend failed", FailureScope::transient, now, started); throw;
     }
     // A cache is not part of the subject transaction. Do not turn a cache error
     // into a failed inference or conceal a successful durable commit from callers.

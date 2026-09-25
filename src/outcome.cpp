@@ -26,6 +26,11 @@ json outcome_json(const Outcome& v) {
     json result = {{"kind", "abstain"}, {"reason", a.reason}, {"detail", a.detail}};
     (void)parse_outcome(result); return result;
 }
+void validate_backend_outcome(const Outcome& v) {
+    try { (void)outcome_json(v); }
+    catch (const Error&) { throw BackendFailure("invalid backend outcome", FailureKind::invalid_output); }
+    catch (const json::exception&) { throw BackendFailure("invalid backend outcome", FailureKind::invalid_output); }
+}
 json make_input(const std::string& kind, const std::string& producer, const json& content,
                 const std::vector<std::string>& sources) {
     json body = {{"schema", "cogg:input/v1"}, {"kind", kind}, {"producer", producer},

@@ -128,7 +128,7 @@ struct LlamaBackend::Impl {
     }
     static bool abort(void* data) { return static_cast<Impl*>(data)->interrupted(); }
     void check_deadline() {
-        if (interrupted()) throw Error("inference cancelled or deadline exceeded");
+        if (interrupted()) throw BackendFailure("inference cancelled or deadline exceeded", FailureKind::timeout);
     }
     void release() { context.reset(); cached.clear(); cached_subject.clear(); pending_head.clear(); pending_tick = -1; }
     void create_context() {
@@ -334,11 +334,15 @@ abstention ::= "{" ws "\"kind\":" ws "\"abstain\"" ws "," ws "\"reason\":" ws ("
                         throw Error("token decoding failed");
                     output += piece;
                 }
-                if (output.size() > 65536) throw Error("transition output byte limit exceeded");
+                if (output.size() > 65536) throw BackendFailure("transition output byte limit exceeded", FailureKind::invalid_output);
                 const auto value = json::parse(output, nullptr, false);
                 if (!value.is_discarded()) {
-                    auto result = parse_outcome(value);
-                    if (options.internal_only && std::holds_alternative<Proposal>(result) && std::get<Proposal>(result).kind == "speech") throw Error("speech disabled by host");
+                    Outcome result;
+                    try { result = parse_outcome(value); }
+                    catch (const Error&) { throw BackendFailure("invalid model outcome", FailureKind::invalid_output); }
+                    catch (const json::exception&) { throw BackendFailure("invalid model outcome", FailureKind::invalid_output); }
+                    if (options.internal_only && std::holds_alternative<Proposal>(result) && std::get<Proposal>(result).kind == "speech")
+                        throw BackendFailure("speech disabled by host", FailureKind::invalid_output);
                     check_deadline();
                     if (std::holds_alternative<Proposal>(result)) { pending_head = p.state.head; pending_tick = p.state.tick; }
                     return result;
@@ -346,7 +350,7 @@ abstention ::= "{" ws "\"kind\":" ws "\"abstain\"" ws "," ws "\"reason\":" ws ("
                 decode(&token, 1);
                 cached.push_back(token);
             }
-            throw Error("model did not complete a transition within output token limit");
+            throw BackendFailure("model did not complete a transition within output token limit", FailureKind::invalid_output);
         } catch (...) { release(); throw; }
     }
 };

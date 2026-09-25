@@ -40,7 +40,8 @@ struct BackendFailure : Error {
     explicit BackendFailure(const std::string& message, FailureKind failure = FailureKind::backend)
         : Error(message), kind(failure) {}
 };
-// invalid_output and generic backend failures may be caused by the occasion itself.
+// Only an explicit invalid-output failure counts automatically. Unknown backend
+// failures can be infrastructure faults and must preserve the occasion.
 FailureScope failure_scope(FailureKind);
 struct Snapshot {
     std::string subject;
@@ -90,6 +91,8 @@ struct Abstention {
 using Outcome = std::variant<Proposal, Abstention>;
 Outcome parse_outcome(const json&);
 json outcome_json(const Outcome&);
+// Classifies malformed returned outcomes without blaming allocation/backend faults.
+void validate_backend_outcome(const Outcome&);
 // Inputs are content-addressed host assertions, not certified observations.
 json make_input(const std::string& kind, const std::string& producer, const json& content,
                 const std::vector<std::string>& sources = {});

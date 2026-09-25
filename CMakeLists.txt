@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(cogg VERSION 0.11.0 LANGUAGES CXX)
+project(cogg VERSION 0.12.0 LANGUAGES CXX)
 file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/include/cogg/output_limits.hpp" COGG_OUTPUT_LIMITS_HASH)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS include/cogg/output_limits.hpp)
 if(POLICY CMP0135)

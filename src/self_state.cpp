@@ -203,7 +203,7 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
     Outcome outcome;
     const char* failure = nullptr;
     auto scope = FailureScope::transient;
-    try { outcome = backend_.respond_attempt(*a, timeout, cancelled); (void)outcome_json(outcome); }
+    try { outcome = backend_.respond_attempt(*a, timeout, cancelled); validate_backend_outcome(outcome); }
     catch (const BackendFailure& error) {
         scope = failure_scope(error.kind);
         switch (error.kind) {
@@ -214,7 +214,7 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
             default: failure = "backend_failed";
         }
     }
-    catch (...) { failure = "backend_failed"; scope = FailureScope::occasion; }
+    catch (...) { failure = "backend_failed"; }
     // Cancellation/deadline remain authoritative even when the backend throws.
     // Never persist an untrusted provider exception message.
     if (cancelled && cancelled()) { fail("cancelled"); return result; }
@@ -224,7 +224,8 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
     result.outcome = outcome_json(outcome);
     if (const auto* p = std::get_if<Proposal>(&outcome)) {
         try { apply(state, *p, g, std::string(64, '0')); (void)view_of(state, subject, std::string(64, '0')); }
-        catch (...) { fail("self_rejected", FailureScope::occasion); return result; }
+        catch (const Error&) { fail("self_rejected", FailureScope::occasion); return result; }
+        catch (...) { fail("self_validation_failed"); throw; }
     }
     try {
         if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
@@ -235,7 +236,7 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
         result.snapshot = store_.commit(a->id, p, now, {}, duration, make_emission(*a, execution_, p, backend_.telemetry()));
     } catch (const ContextOverflow&) { fail("memory_pressure"); return result; }
     catch (const Conflict&) { fail("conflict"); return result; }
-    catch (...) { fail("commit_rejected", FailureScope::occasion); if (result.status == "disposed") return result; throw; }
+    catch (...) { fail("commit_rejected"); throw; }
     result.status = "committed";
     try { backend_.committed(a->present, *result.snapshot); }
     catch (...) { result.maintenance_error = "backend maintenance failed"; }

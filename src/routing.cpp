@@ -152,7 +152,7 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
             if (limit <= 0) throw BackendFailure("timeout", FailureKind::timeout);
             outcome = backend.respond_attempt(*a, limit, cancelled);
             // Reject invalid model output before entering the commit transaction.
-            (void)outcome_json(outcome);
+            validate_backend_outcome(outcome);
         } catch (const BackendFailure& error) {
             scope = failure_scope(error.kind);
             switch (error.kind) {
@@ -162,17 +162,20 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
                 case FailureKind::credentials: failure = "credentials_unavailable"; break;
                 default: failure = "backend_failed";
             }
-        } catch (const std::exception&) { failure = "backend_failed"; scope = FailureScope::occasion; }
-        if (!failure.empty()) {
-            // A cancelled route blames nobody, whatever the backend threw on the way out.
-            if (settled(failure, cancelled() ? FailureScope::transient : scope)) return result;
-            if (cancelled()) { result.status = "cancelled"; return result; }
+        } catch (...) { failure = "backend_failed"; }
+        // Cancellation and BOTH deadlines win even when the backend throws.
+        // Classify them before any occasion-scoped settlement can consume input.
+        const auto duration = elapsed() - attempt_start;
+        if (cancelled()) { settled("cancelled"); result.status = "cancelled"; return result; }
+        if (duration >= limit) {
+            settled("timeout");
             if (elapsed() >= route.timeout_ms) { result.status = "timeout"; return result; }
             continue;
         }
-        const auto duration = elapsed() - attempt_start;
-        if (cancelled()) { settled("cancelled"); result.status = "cancelled"; return result; }
-        if (duration >= limit) { settled("timeout"); continue; }
+        if (!failure.empty()) {
+            if (settled(failure, scope)) return result;
+            continue;
+        }
         try {
             if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
                 auto receipt = store_.abstain(a->id, *abstention, backend.telemetry());
@@ -185,7 +188,7 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
             result.snapshot = store_.commit(a->id, proposal, wall(), {}, duration, emission);
         } catch (const Conflict&) { settled("conflict"); result.status = "conflict"; return result; }
         catch (const ContextOverflow&) { settled("commit_rejected"); throw; } // Memory pressure: maintenance, not disposal.
-        catch (...) { if (settled("commit_rejected", FailureScope::occasion)) return result; throw; }
+        catch (...) { settled("commit_rejected"); throw; }
         result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", "committed"}});
         result.status = "committed";
         try { backend.committed(a->present, *result.snapshot); }

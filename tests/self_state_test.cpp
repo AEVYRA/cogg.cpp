@@ -241,7 +241,15 @@ void disposition() {
     s.verify("s");
 }
 
+void unknown_self_failure_keeps_input() {
+    Temp t; Store s(t.db()); create(s); Organ b([](const Present&) -> Outcome { throw Error("allocation fault"); });
+    SelfRuntime runtime(s, b, execution(b));
+    for (millis at = 1; at < 6; ++at)
+        check(runtime.step("s", at).status == "backend_failed", "unknown self failure disposed input");
+    check(s.snapshot("s").tick == 0, "unknown self failure advanced head");
+    s.verify("s");
+}
 int main() {
-    try { failure_classification(); bounded_history_reconstitution(); continuity(); guards(); failures_and_bypass(); wake_binding(); disposition(); std::cout << "self-state contract passed\n"; }
+    try { unknown_self_failure_keeps_input(); failure_classification(); bounded_history_reconstitution(); continuity(); guards(); failures_and_bypass(); wake_binding(); disposition(); std::cout << "self-state contract passed\n"; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

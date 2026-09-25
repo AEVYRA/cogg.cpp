@@ -12,7 +12,7 @@ changes atomically to a SHA-256 history chain. After a process crash, the host
 can reopen the database and continue from the last committed state. Interrupted
 inference may run again and produce different text.
 
-**Status: experimental, v0.11.0.** The project originated in the Physalia Gyre
+**Status: experimental, v0.12.0.** The project originated in the Physalia Gyre
 research program and can be embedded independently. Logical clocks and stored
 self-state are runtime mechanisms; they do not establish subjective experience.
 
@@ -31,6 +31,19 @@ self-state are runtime mechanisms; they do not establish subjective experience.
   executors reconstruct context and do not transfer native KV.
 - **Optional host modules:** guarded self-state, a separate terminal client
   and host, and image observation with retained memory.
+
+## Recovery improvements in v0.12
+
+Repeated, explicitly classified invalid outcomes can now settle an occasion with
+an auditable null transition, allowing later inbox messages to proceed. The
+retry limit is fixed at subject creation (three for new subjects, zero disables);
+existing subjects retain their prior behavior. Transport, timeout, unknown
+backend and storage failures keep the input pending. See [Kernel](docs/KERNEL.md)
+for failure scope, wake behavior and the `disposed` result.
+
+History verification avoids rewriting all old versions of a superseded memory
+key. Routed execution verifies a subject once per runtime, while full forensic
+verification remains available through `Store::verify`.
 
 ## Embedding improvements in v0.11
 

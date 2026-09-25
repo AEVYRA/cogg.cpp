@@ -302,7 +302,9 @@ Outcome HttpBackend::respond_attempt(const Attempt& a, millis timeout, const std
             value["kind"] = "abstain"; impl_->receipt["normalization"] = "abstention_to_abstain";
         }
         return parse_outcome(value);
-    } catch (...) { throw BackendFailure("invalid or incomplete provider proposal", FailureKind::invalid_output); }
+    } catch (const Error&) { throw BackendFailure("invalid or incomplete provider proposal", FailureKind::invalid_output); }
+    catch (const json::exception&) { throw BackendFailure("invalid or incomplete provider proposal", FailureKind::invalid_output); }
+    catch (...) { throw BackendFailure("provider response processing failed", FailureKind::backend); }
 }
 json HttpBackend::observe_image(const std::vector<std::uint8_t>& bytes, const std::string& mime,
                                const std::string& id, millis timeout, const std::function<bool()>& cancelled) {
@@ -325,7 +327,9 @@ json HttpBackend::observe_image(const std::vector<std::uint8_t>& bytes, const st
         const auto& description = value.at("description").get_ref<const std::string&>();
         need(!description.empty() && description.size() <= 4096 && description.find('\0') == std::string::npos, "vision description exceeds limits");
         return value;
-    } catch (...) { throw BackendFailure("invalid or incomplete vision observation", FailureKind::invalid_output); }
+    } catch (const Error&) { throw BackendFailure("invalid or incomplete vision observation", FailureKind::invalid_output); }
+    catch (const json::exception&) { throw BackendFailure("invalid or incomplete vision observation", FailureKind::invalid_output); }
+    catch (...) { throw BackendFailure("provider response processing failed", FailureKind::backend); }
 }
 json HttpBackend::complete(const json& messages, const json& schema, const std::string& id,
                            millis timeout, const std::function<bool()>& cancelled, bool observation) {
@@ -410,7 +414,9 @@ json HttpBackend::complete(const json& messages, const json& schema, const std::
         }
         json value = refused ? outcome_json(Abstention{"refused", "Provider declined to respond"}) : json::parse(content);
         impl_->receipt = receipt; return value;
-    } catch (...) { throw BackendFailure("invalid or incomplete provider proposal", FailureKind::invalid_output); }
+    } catch (const Error&) { throw BackendFailure("invalid or incomplete provider proposal", FailureKind::invalid_output); }
+    catch (const json::exception&) { throw BackendFailure("invalid or incomplete provider proposal", FailureKind::invalid_output); }
+    catch (...) { throw BackendFailure("provider response processing failed", FailureKind::backend); }
 }
 void register_http(Registry& registry, const json& config) {
     need(config.is_object() && config.size() == 1 && config.contains("executors") && config.at("executors").is_object(), "invalid executor configuration");

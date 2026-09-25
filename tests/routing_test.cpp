@@ -146,6 +146,9 @@ void route_disposition() {
     store.submit("s", "k1", {{"text", "bad"}}, 2);
     for (millis at = 10; at < 60; at += 10) check(runtime.step("s", route, at).status == "exhausted", "transport failure");
     check(store.snapshot("s").tick == 1, "transport failures disposed the occasion");
+    kind = FailureKind::backend;
+    for (millis at : {61, 63, 65, 67})
+        check(runtime.step("s", route, at).status == "exhausted", "unknown backend failure disposed input");
     kind = FailureKind::invalid_output;
     check(runtime.step("s", route, 70).status == "exhausted" && runtime.step("s", route, 80).status == "exhausted", "invalid output");
     const auto result = runtime.step("s", route, 90);
@@ -155,5 +158,24 @@ void route_disposition() {
     store.verify("s");
 }
 
-int main() { try { open_task_capacity_fallback(); isolation_and_gates(); fallback_and_limits(); binding_and_late_results(); context_and_factory_fallback(); conflicting_writer(); route_disposition(); std::cout << "routing invariants passed\n"; }
+void late_invalid_output_is_timeout() {
+    Temp t; Store store(t.db()); Limits limits{1, 100, 1000}; limits.max_occasion_failures = 1;
+    store.create("s", limits, 0); Registry registry;
+    registry.add("slow", {}, [] { return std::make_unique<TestBackend>([](const Present&) -> Proposal {
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        throw BackendFailure("late parse error", FailureKind::invalid_output);
+    }); });
+    RoutedRuntime runtime(store, registry); Route route; route.executors = {"slow"};
+    route.timeout_ms = 5; route.attempt_timeout_ms = 5;
+    auto result = runtime.step("s", route, 1);
+    check(result.status == "timeout" && !result.snapshot && store.snapshot("s").tick == 0,
+          "late invalid output disposed an occasion before checking deadline");
+    check(result.attempts.at(0).at("status") == "timeout", "wrong timeout provenance");
+    route.timeout_ms = 1000; route.attempt_timeout_ms = 5;
+    result = runtime.step("s", route, 50);
+    check(result.status == "exhausted" && !result.snapshot && store.snapshot("s").tick == 0 &&
+          result.attempts.at(0).at("status") == "timeout", "attempt deadline blamed input");
+    store.verify("s");
+}
+int main() { try { late_invalid_output_is_timeout(); open_task_capacity_fallback(); isolation_and_gates(); fallback_and_limits(); binding_and_late_results(); context_and_factory_fallback(); conflicting_writer(); route_disposition(); std::cout << "routing invariants passed\n"; }
 catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

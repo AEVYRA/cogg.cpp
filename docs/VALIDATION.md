@@ -37,6 +37,15 @@ byte/item pressure. It also checks that prompt deduplication leaves the stored
 admission intact. See [embedding recovery](EMBEDDING_RECOVERY.md) for public API
 examples and the repeatable history benchmark.
 
+## Failed-occasion regression coverage
+
+Kernel, routing and self-state fixtures cover bounded invalid-output disposition,
+inbox progress, preserved state and wake requests, transient/unknown failures,
+route and attempt deadlines, failure-evidence tampering, read-only older files,
+and transactional rollback when a disposition cannot be stored. Native model
+tests exercise the explicit output-failure classifications through the local
+llama.cpp adapter. These checks do not establish a universal retry threshold.
+
 ## Native model tests
 
 Use the exact GGUF URL and SHA-256 in [llama.yml](../.github/workflows/llama.yml).

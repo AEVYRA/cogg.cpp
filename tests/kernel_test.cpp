@@ -219,11 +219,11 @@ void maintenance_after_commit() {
 }
 }
 struct Poison : Backend {
-    std::optional<FailureKind> kind; // nullopt: an ordinary exception, attributed to the occasion
+    std::optional<FailureKind> kind = FailureKind::invalid_output; // nullopt: unclassified failure
     std::string name() const override { return "poison/v1"; }
     Proposal propose(const Present& p) override {
         if (p.occasion.payload.value("text", "") == "bad") {
-            if (kind) throw BackendFailure("provider diagnostic", *kind);
+            if (kind) throw BackendFailure("model cannot handle this occasion", *kind);
             throw Error("model cannot handle this occasion");
         }
         Proposal ok; ok.kind = "speech"; ok.text = "handled";
@@ -292,8 +292,41 @@ void read_only_without_failure_table() {
     mutate(t.path(), "DROP TABLE occasion_failures"); // A file written before this table existed.
     Store ro(t.path(), OpenMode::read_only); ro.verify("s");
 }
+void unclassified_failures_keep_occasion() {
+    for (bool typed : {false, true}) {
+        Temp t; Store s(t.path()); s.create("s", {1, 50, 3600000}, 0);
+        Poison b; b.kind.reset(); if (typed) b.kind = FailureKind::backend;
+        Runtime rt(s, b); rt.step("s", 1); s.submit("s", "healthy", {{"text", "bad"}}, 2);
+        for (millis at = 10; at <= 50; at += 10) rejects([&] { rt.step("s", at); });
+        check(!rt.last_disposition() && s.snapshot("s").tick == 1 &&
+              s.request_trace("s", "healthy").at("commits").empty(),
+              "unclassified infrastructure failure consumed an occasion");
+        s.verify("s");
+    }
+}
+void malformed_return_and_atomic_disposition() {
+    struct Malformed : Backend {
+        std::string name() const override { return "malformed/v1"; }
+        Proposal propose(const Present&) override { Proposal p; p.kind = "not-a-kind"; return p; }
+    };
+    Temp t; Store s(t.path()); s.create("s", {1, 100, 1000}, 0); Malformed bad; Runtime runtime(s, bad);
+    for (millis at : {1, 10, 20}) rejects([&] { runtime.step("s", at); });
+    check(runtime.last_disposition() && s.snapshot("s").tick == 1, "malformed returned outcome not disposed");
+    s.verify("s");
+    Limits limits{1, 100, 1000}; limits.max_occasion_failures = 1; s.create("atomic", limits, 0);
+    auto a = admitted(s, 1, "atomic");
+    mutate(t.path(), "CREATE TRIGGER reject_commit BEFORE INSERT ON commits BEGIN SELECT RAISE(ABORT,'injected storage fault'); END");
+    rejects([&] { s.fail(a.id, "invalid output", FailureScope::occasion, 2); });
+    check(s.snapshot("atomic").tick == 0, "failed disposition changed head");
+    mutate(t.path(), "DROP TRIGGER reject_commit");
+    auto result = s.fail(a.id, "invalid output", FailureScope::occasion, 3);
+    check(result && result->tick == 1, "failure transaction was partially settled");
+    s.verify("atomic");
+}
 int main() {
     const std::pair<const char*, void(*)()> cases[] = {
+        {"malformed output and atomic disposition", malformed_return_and_atomic_disposition},
+        {"unclassified failures keep occasion", unclassified_failures_keep_occasion},
         {"poison occasion disposition", poison_occasion_disposition},
         {"transient failures never dispose", transient_failures_never_dispose},
         {"read-only file without failure table", read_only_without_failure_table},
