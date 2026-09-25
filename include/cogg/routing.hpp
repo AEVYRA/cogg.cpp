@@ -1,6 +1,7 @@
 #pragma once
 #include "cogg/kernel.hpp"
 #include <map>
+#include <set>
 
 namespace cogg {
 // Host declarations, not model-generated capabilities. A Registry is single-thread owned.
@@ -64,5 +65,6 @@ private:
     Store& store_;
     Registry& registry_;
     std::function<millis()> wall_clock_;
+    std::set<std::string> verified_;
 };
 } // namespace cogg

@@ -60,7 +60,9 @@ process. CLI polling uses a short sleep and does not write on every idle poll.
 
 ## Recovery and evidence
 
-`Runtime` verifies a subject before its first admission. The verifier checks
+`Runtime` and `RoutedRuntime` verify a subject before their first admission for
+it; later steps rely on the head-checked commit path. Call `Store::verify` for a
+full forensic check. The verifier checks
 SQLite integrity/FKs, record hashes, chain parents/ticks, occasion/attempt refs,
 and replayed memory and wake state against the persisted subject projection.
 It detects inconsistent records; it does not authenticate a chain rewritten by

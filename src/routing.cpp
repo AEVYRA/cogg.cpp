@@ -96,7 +96,9 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
     std::set<std::string> seen;
     for (const auto& id : route.executors)
         need(registry_.entries_.count(id) && seen.insert(id).second, "unknown or duplicate route executor");
-    store_.verify(subject);
+    // Verify a subject once per runtime, as Runtime does. Later steps append through
+    // the kernel's head-checked commit; a full forensic verify stays with the host.
+    if (!verified_.count(subject)) { store_.verify(subject); verified_.insert(subject); }
     const auto original = store_.snapshot(subject).head;
     const auto start = std::chrono::steady_clock::now();
     auto elapsed = [&] { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(); };
