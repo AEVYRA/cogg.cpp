@@ -128,5 +128,32 @@ void open_task_capacity_fallback() {
     store.verify("s");
 }
 }
-int main() { try { open_task_capacity_fallback(); isolation_and_gates(); fallback_and_limits(); binding_and_late_results(); context_and_factory_fallback(); conflicting_writer(); std::cout << "routing invariants passed\n"; }
+void route_disposition() {
+    Temp t; Store store(t.db()); store.create("s", {1, 100, 3600000}, 0);
+    Registry registry(4);
+    auto kind = FailureKind::transport;
+    struct Failing : Backend {
+        FailureKind& kind; explicit Failing(FailureKind& k) : kind(k) {}
+        std::string name() const override { return "failing/v1"; }
+        Proposal propose(const Present& p) override {
+            if (p.occasion.kind == "created") return {};
+            throw BackendFailure("provider diagnostic", kind);
+        }
+    };
+    registry.add("local", {}, [&] { return std::make_unique<Failing>(kind); });
+    RoutedRuntime runtime(store, registry); Route route; route.executors = {"local"};
+    check(runtime.step("s", route, 1).status == "committed", "created occasion");
+    store.submit("s", "k1", {{"text", "bad"}}, 2);
+    for (millis at = 10; at < 60; at += 10) check(runtime.step("s", route, at).status == "exhausted", "transport failure");
+    check(store.snapshot("s").tick == 1, "transport failures disposed the occasion");
+    kind = FailureKind::invalid_output;
+    check(runtime.step("s", route, 70).status == "exhausted" && runtime.step("s", route, 80).status == "exhausted", "invalid output");
+    const auto result = runtime.step("s", route, 90);
+    check(result.status == "disposed" && result.snapshot && result.snapshot->tick == 2, "invalid output not disposed");
+    const auto body = store.request_trace("s", "k1").at("commits").at(0).at("body");
+    check(body.at("emission").is_null() && body.at("disposition").at("failures").size() == 3, "routed disposition record");
+    store.verify("s");
+}
+
+int main() { try { open_task_capacity_fallback(); isolation_and_gates(); fallback_and_limits(); binding_and_late_results(); context_and_factory_fallback(); conflicting_writer(); route_disposition(); std::cout << "routing invariants passed\n"; }
 catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

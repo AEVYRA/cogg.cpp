@@ -218,8 +218,86 @@ void maintenance_after_commit() {
     s.verify("s");
 }
 }
+struct Poison : Backend {
+    std::optional<FailureKind> kind; // nullopt: an ordinary exception, attributed to the occasion
+    std::string name() const override { return "poison/v1"; }
+    Proposal propose(const Present& p) override {
+        if (p.occasion.payload.value("text", "") == "bad") {
+            if (kind) throw BackendFailure("provider diagnostic", *kind);
+            throw Error("model cannot handle this occasion");
+        }
+        Proposal ok; ok.kind = "speech"; ok.text = "handled";
+        if (p.occasion.kind == "created") ok.wake_after_ms = 100000;
+        return ok;
+    }
+};
+void poison_occasion_disposition() {
+    Temp t; Store s(t.path()); s.create("s", {1, 20, 3600000}, 0);
+    Poison b; Runtime rt(s, b);
+    const auto first = rt.step("s", 1); check(first && first->wake_at == 100001, "created occasion or wake failed");
+    s.submit("s", "k1", {{"text", "bad"}}, 2); s.submit("s", "k2", {{"text", "good"}}, 3);
+    for (millis at : {10, 20}) {
+        rejects([&] { rt.step("s", at); });
+        check(!rt.last_disposition() && s.snapshot("s").tick == 1, "disposed before the limit");
+    }
+    rejects([&] { rt.step("s", 30); });
+    const auto& disposed = rt.last_disposition();
+    check(disposed && disposed->tick == 2 && disposed->wake_at == 100001, "poison not disposed or pending wake lost");
+    const auto trace = s.request_trace("s", "k1");
+    const auto& body = trace.at("commits").at(0).at("body");
+    check(body.at("proposal").at("kind") == "null" && body.at("emission").is_null() &&
+          body.at("disposition").at("failures").size() == 3 && !body.at("disposition").contains("last_error") &&
+          trace.at("attempts").at(1).at("error") == "model cannot handle this occasion", "disposition record");
+    const auto next = rt.step("s", 40);
+    check(next && next->tick == 3 && s.request_trace("s", "k2").at("commits").size() == 1, "inbox did not advance");
+    s.verify("s");
+    // Tampering with the failure evidence breaks verification.
+    mutate(t.path(), "DELETE FROM occasion_failures WHERE rowid=(SELECT min(rowid) FROM occasion_failures)");
+    { Store again(t.path()); rejects([&] { again.verify("s"); }); }
+}
+void transient_failures_never_dispose() {
+    Temp t; Store s(t.path()); s.create("s", {1, 50, 3600000}, 0);
+    Poison b; b.kind = FailureKind::transport; Runtime rt(s, b);
+    rt.step("s", 1); s.submit("s", "k1", {{"text", "bad"}}, 2);
+    for (millis at = 10; at < 110; at += 10) rejects([&] { rt.step("s", at); });
+    check(!rt.last_disposition() && s.snapshot("s").tick == 1 &&
+          s.request_trace("s", "k1").at("occasions").at(0).at("consumed") == "", "an outage disposed a message");
+    // A subject with disposition disabled keeps the historical genesis bytes and retries forever.
+    Limits off{1, 50, 3600000}; off.max_occasion_failures = 0;
+    s.create("off", off, 0);
+    check(!s.record(s.snapshot("off").head).at("limits").contains("max_occasion_failures"), "disabled limit stored");
+    Poison hard; Runtime other(s, hard); other.step("off", 1); s.submit("off", "k1", {{"text", "bad"}}, 2);
+    for (millis at = 10; at < 60; at += 10) rejects([&] { other.step("off", at); });
+    check(!other.last_disposition() && s.snapshot("off").tick == 1, "disabled disposition settled an occasion");
+    s.verify("s"); s.verify("off");
+}
+void memory_pressure_never_disposes() {
+    struct Tasks : Backend {
+        std::string name() const override { return "tasks/v1"; }
+        std::optional<MemoryPolicy> memory_policy() const override { MemoryPolicy p; p.max_items = 1; return p; }
+        Proposal propose(const Present&) override {
+            Proposal p; p.notes = {{"t1", "first", "task", "open", {}, {}}, {"t2", "second", "task", "open", {}, {}}};
+            return p;
+        }
+    };
+    Temp t; Store s(t.path()); s.create("s", {1, 50, 3600000}, 0);
+    Tasks b; Runtime rt(s, b);
+    for (millis at = 1; at < 60; at += 10) rejects([&] { rt.step("s", at); });
+    check(!rt.last_disposition() && s.snapshot("s").tick == 0, "memory pressure disposed an occasion");
+    s.verify("s");
+}
+void read_only_without_failure_table() {
+    Temp t;
+    { Store s(t.path()); s.create("s", {1, 20, 3600000}, 0); Poison b; Runtime rt(s, b); rt.step("s", 1); }
+    mutate(t.path(), "DROP TABLE occasion_failures"); // A file written before this table existed.
+    Store ro(t.path(), OpenMode::read_only); ro.verify("s");
+}
 int main() {
     const std::pair<const char*, void(*)()> cases[] = {
+        {"poison occasion disposition", poison_occasion_disposition},
+        {"transient failures never dispose", transient_failures_never_dispose},
+        {"read-only file without failure table", read_only_without_failure_table},
+        {"memory pressure never disposes", memory_pressure_never_disposes},
         {"restart/atomic memory/wake/null", restart_and_atomic_state},
         {"durable inbox/idempotency/backend replacement", queue_idempotency_and_replacement},
         {"failed/unsettled attempt budgets/restart/clock rollback", attempts_survive_failure_restart_and_clock_rollback},

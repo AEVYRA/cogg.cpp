@@ -54,6 +54,40 @@ Storage must honor SQLite's filesystem and sync assumptions; use local storage.
 - A scheduled occasion belongs to the head that requested it. Obsolete queued
   timers are retained as evidence and cannot drive a newer head.
 
+### Undeliverable occasions
+
+The inbox is ordered: the oldest pending occasion is admitted first. A failed
+attempt leaves its occasion pending, so an occasion that no executor can handle
+used to be retried until the attempt quota was exhausted, and every later
+message waited behind it.
+
+`Store::fail(attempt, reason, scope, now)` settles a failure with a scope.
+`transient` failures (transport, timeout, credentials, cancellation, conflicts
+and memory pressure) never count against the occasion: an outage or a full
+memory must not discard a healthy message. `occasion` failures (invalid output,
+a generic backend failure, a proposal the kernel or a host policy rejects) are
+recorded in `occasion_failures`. When an occasion reaches
+`Limits::max_occasion_failures` (default 3 for new subjects; 0 disables), the
+kernel commits a host-authored null transition in the same transaction:
+
+- `proposal.kind` is `null` with no text, memory or notes; `emission` is null;
+- a `disposition` record (`cogg:disposition/v1`) lists exactly the counted
+  failed attempts and the limit. Failure reasons stay in the attempts table;
+  provider messages never enter the hashed history;
+- a pending future wake is preserved, except when the disposed occasion is
+  itself the scheduled wake or a task-maintenance admission;
+- the occasion is consumed, so the next message is admitted.
+
+The disposition is part of the subject's history, not a silent drop, and
+`request_trace` returns it for the original idempotency key. The verifier
+checks every listed failure against its attempt and occasion. The provided
+runtimes classify failures this way; `Runtime::last_disposition()`,
+`RouteResult::status == "disposed"` and `SelfResult::status == "disposed"`
+report a settlement. The two-argument `fail` remains a transient failure.
+Subjects created before this field existed have no limit and keep their genesis
+bytes. A history containing a routed disposition needs a verifier from this
+revision or later.
+
 The durable lifecycle describes the next waiting mode. Live execution activity
 is represented by reservations, not by pretending `deliberating` survives a dead
 process. CLI polling uses a short sleep and does not write on every idle poll.

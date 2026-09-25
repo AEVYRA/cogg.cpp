@@ -34,7 +34,10 @@ Proposal note(const std::string& text = terms, const std::string& status = "open
 json grant(Store& s, const json& create = json::object(), const json& settle = json::object(), const json& profile = nullptr) {
     return self_grant(inspect_self(s, "s"), s.schedule("s", 100).at("occasion").at("id"), create, settle, profile);
 }
-void create(Store& s) { s.create("s", {1, 100, 1000}, 0, {{"self.profile", self_profile({{"name", "Rin"}, {"role", "assistant"}})}}); }
+void create(Store& s, std::int64_t max_occasion_failures = 3) {
+    Limits limits{1, 100, 1000}; limits.max_occasion_failures = max_occasion_failures;
+    s.create("s", limits, 0, {{"self.profile", self_profile({{"name", "Rin"}, {"role", "assistant"}})}});
+}
 void continuity() {
     Temp t; std::string original_version;
     {
@@ -71,7 +74,8 @@ void continuity() {
     }
 }
 void guards() {
-    Temp t; Store s(t.db()); create(s); Organ b([](const Present&)->Outcome { return note(); }); SelfRuntime r(s, b, execution(b));
+    // Guards reject one occasion many times over; disposition is covered by disposition().
+    Temp t; Store s(t.db()); create(s, 0); Organ b([](const Present&)->Outcome { return note(); }); SelfRuntime r(s, b, execution(b));
     const auto original = s.snapshot("s").head;
     check(r.step("s", 0).status == "self_rejected" && s.snapshot("s").head == original, "ungranted creation committed");
     auto g = grant(s, {{key, terms}});
@@ -226,7 +230,18 @@ void bounded_history_reconstitution() {
     }
 }
 }
+void disposition() {
+    Temp t; Store s(t.db()); create(s); Organ b([](const Present&)->Outcome { return note(); }); SelfRuntime r(s, b, execution(b));
+    const auto before = inspect_self(s, "s");
+    check(r.step("s", 1).status == "self_rejected" && r.step("s", 2).status == "self_rejected", "ungranted creation");
+    const auto third = r.step("s", 3);
+    check(third.status == "disposed" && third.snapshot && third.snapshot->tick == 1, "rejected occasion not disposed");
+    const auto after = inspect_self(s, "s");
+    check(after.at("open") == before.at("open") && after.at("profile") == before.at("profile"), "disposition changed self state");
+    s.verify("s");
+}
+
 int main() {
-    try { failure_classification(); bounded_history_reconstitution(); continuity(); guards(); failures_and_bypass(); wake_binding(); std::cout << "self-state contract passed\n"; }
+    try { failure_classification(); bounded_history_reconstitution(); continuity(); guards(); failures_and_bypass(); wake_binding(); disposition(); std::cout << "self-state contract passed\n"; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

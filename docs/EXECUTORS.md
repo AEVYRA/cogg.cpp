@@ -58,7 +58,8 @@ build/cogg-cli verify /tmp/routed.db subject
 
 `run-route` executes **one routed step**, not an unattended service. Routes contain
 1–8 unique registered IDs. It prints status, attempt trace and the committed
-emission. Exit 0 means committed or waiting; 3 means exhausted/conflict/timeout;
+emission. Exit 0 means committed or waiting; 3 means exhausted/conflict/timeout
+or disposed (the occasion was settled as undeliverable, see [Kernel](KERNEL.md));
 130 means cancelled; 1 is a configuration or kernel error. Check the status even
 when the process succeeds. Unknown IDs are rejected before inference. Only IDs in
 the supplied route can run. A skipped capability/disabled/unavailable/context

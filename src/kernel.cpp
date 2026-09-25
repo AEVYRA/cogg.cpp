@@ -56,10 +56,14 @@ std::optional<millis> read_time(const json& t) {
 json limits_json(Limits l) {
     require(l.min_wake_ms > 0 && l.min_wake_ms <= max_delay && l.max_attempts > 0 &&
             l.max_attempts <= 1000000 && l.period_ms > 0 && l.period_ms <= max_delay &&
-            l.max_wake_ms >= l.min_wake_ms && l.max_wake_ms <= max_delay,
+            l.max_wake_ms >= l.min_wake_ms && l.max_wake_ms <= max_delay &&
+            l.max_occasion_failures >= 0 && l.max_occasion_failures <= 64,
             "invalid runtime limits");
-    return {{"min_wake_ms", l.min_wake_ms}, {"max_attempts", l.max_attempts},
-            {"period_ms", l.period_ms}, {"max_wake_ms", l.max_wake_ms}};
+    json result = {{"min_wake_ms", l.min_wake_ms}, {"max_attempts", l.max_attempts},
+                   {"period_ms", l.period_ms}, {"max_wake_ms", l.max_wake_ms}};
+    // Omitted when disabled so a disabled subject keeps the historical genesis bytes.
+    if (l.max_occasion_failures > 0) result["max_occasion_failures"] = l.max_occasion_failures;
+    return result;
 }
 void validate(const Proposal& p) {
     validate_memory_notes(p.notes);
@@ -383,6 +387,10 @@ CREATE TABLE IF NOT EXISTS commits(
 PRAGMA application_id=1129269063;
 CREATE TABLE IF NOT EXISTS abstentions(
  id TEXT PRIMARY KEY, attempt TEXT NOT NULL UNIQUE REFERENCES attempts(id), body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS occasion_failures(
+ attempt TEXT PRIMARY KEY REFERENCES attempts(id),
+ occasion TEXT NOT NULL REFERENCES occasions(id), reason TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS occasion_failures_occasion ON occasion_failures(occasion);
 PRAGMA user_version=5;
 )SQL");
     detail::memory_schema(db);
@@ -479,15 +487,28 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
 Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, millis now,
                        const std::function<void(CommitPoint)>& hook, std::optional<millis> inference_elapsed_ms, const json& emission) {
     if (inference_elapsed_ms) check_time(*inference_elapsed_ms);
-    check_time(now); const auto p = proposal_json(proposal);
+    check_time(now);
+    Transaction tx(impl_->db);
+    auto result = commit_locked(attempt, proposal, now, inference_elapsed_ms, emission, nullptr);
+    if (hook) hook(CommitPoint::before_sql_commit);
+    tx.commit();
+    if (hook) hook(CommitPoint::after_sql_commit);
+    return result;
+}
+// Caller owns the write transaction. A non-null disposition is the kernel's own
+// settlement of an undeliverable occasion; it carries no model emission.
+Snapshot Store::commit_locked(const std::string& attempt, const Proposal& proposal, millis now,
+                              std::optional<millis> inference_elapsed_ms, const json& emission,
+                              const json& disposition) {
+    const auto p = proposal_json(proposal);
     auto* db = impl_->db;
-    Transaction tx(db);
     Statement aq(db, "SELECT body,status FROM attempts WHERE id=?");
     aq.bind(1, attempt); require(aq.row(), "attempt missing");
     if (aq.text(1) != "reserved") throw Conflict("attempt already settled");
     const auto a = json::parse(aq.text(0));
     require(hash(a) == attempt, "attempt hash mismatch");
-    validate_emission(emission, attempt, a, p);
+    if (disposition.is_null()) validate_emission(emission, attempt, a, p);
+    else require(emission.is_null(), "disposition cannot carry a model emission");
     const auto subject = a.at("subject").get<std::string>();
     auto s = impl_->snapshot(subject);
     if (s.head != a.at("parent").get<std::string>() || s.tick != a.at("tick").get<std::int64_t>()) {
@@ -518,6 +539,7 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
                  {"memory", memory}, {"wake_at", optional_time(wake)}, {"committed_at", now},
                  {"wall_observed_at", observed}, {"wake_plan", plan},
                  {"inference_elapsed_ms", optional_time(inference_elapsed_ms)}, {"emission", emission}};
+    if (!disposition.is_null()) body["disposition"] = disposition;
     auto id = hash(body);
     detail::memory_transition(proposal, a);
     detail::memory_apply(db, subject, s.head, tick, id, proposal.notes);
@@ -535,9 +557,6 @@ Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, mil
     settled.bind(1, attempt).done();
     Statement obsolete(db, "UPDATE attempts SET status='superseded' WHERE subject=? AND parent=? AND status='reserved'");
     obsolete.bind(1, subject).bind(2, s.head).done();
-    if (hook) hook(CommitPoint::before_sql_commit);
-    tx.commit();
-    if (hook) hook(CommitPoint::after_sql_commit);
     return Snapshot{subject, tick, id, memory, wake, wake ? "sleeping" : "waiting_external"};
 }
 std::string Store::abstain(const std::string& attempt, const Abstention& outcome, const json& provider) {
@@ -566,6 +585,73 @@ std::string Store::abstain(const std::string& attempt, const Abstention& outcome
 void Store::fail(const std::string& attempt, const std::string& reason) {
     Statement q(impl_->db, "UPDATE attempts SET status='failed',error=? WHERE id=? AND status='reserved'");
     q.bind(1, reason.substr(0, 1024)).bind(2, attempt).done();
+}
+std::optional<Snapshot> Store::fail(const std::string& attempt, const std::string& reason,
+                                    FailureScope scope, millis now) {
+    check_time(now);
+    const auto error = reason.substr(0, 1024);
+    auto* db = impl_->db;
+    Transaction tx(db);
+    Statement aq(db, "SELECT body,status FROM attempts WHERE id=?");
+    aq.bind(1, attempt); require(aq.row(), "attempt missing");
+    if (aq.text(1) != "reserved") { tx.commit(); return std::nullopt; } // Idempotent, like fail().
+    const auto a = json::parse(aq.text(0));
+    require(hash(a) == attempt, "attempt hash mismatch");
+    auto mark_failed = [&] {
+        Statement q(db, "UPDATE attempts SET status='failed',error=? WHERE id=? AND status='reserved'");
+        q.bind(1, error).bind(2, attempt).done();
+    };
+    if (scope == FailureScope::transient) { mark_failed(); tx.commit(); return std::nullopt; }
+    const auto subject = a.at("subject").get<std::string>();
+    const auto oid = a.at("occasion").get<std::string>();
+    Statement record_failure(db, "INSERT INTO occasion_failures VALUES(?,?,?)");
+    record_failure.bind(1, attempt).bind(2, oid).bind(3, error).done();
+    const auto limits = impl_->config(subject);
+    const auto cap = limits.value("max_occasion_failures", std::int64_t{0});
+    json failures = json::array();
+    Statement f(db, "SELECT f.attempt FROM occasion_failures f JOIN attempts a ON a.id=f.attempt "
+                    "WHERE f.occasion=? AND f.attempt!=? ORDER BY a.seq");
+    f.bind(1, oid).bind(2, attempt);
+    while (f.row()) failures.push_back(f.text(0));
+    failures.push_back(attempt);
+    const auto s = impl_->snapshot(subject);
+    Statement consumed(db, "SELECT consumed FROM occasions WHERE id=?");
+    consumed.bind(1, oid); consumed.row();
+    const bool settle = cap > 0 && static_cast<std::int64_t>(failures.size()) >= cap &&
+                        s.head == a.at("parent").get<std::string>() && consumed.text(0).empty();
+    if (!settle) { mark_failed(); tx.commit(); return std::nullopt; }
+    // The disposition lists exactly `cap` failures: the earliest ones plus this attempt.
+    if (static_cast<std::int64_t>(failures.size()) > cap)
+        failures.erase(failures.begin() + (cap - 1), failures.end() - 1);
+    Proposal settlement; // kind null: no text, memory, notes or model emission.
+    const auto e = impl_->event(oid);
+    const bool maintenance = a.contains("context") &&
+        a.at("context").at("view").value("strategy", "") == "task_maintenance";
+    if (s.wake_at && e.at("kind") != "scheduled" && !maintenance) {
+        // Commit clamps its wall against admission and accounting; keep the same instant.
+        Statement wall(db, "SELECT accounting_wall FROM subjects WHERE id=?");
+        wall.bind(1, subject); wall.row();
+        const auto at = std::max({now, a.at("admitted_at").get<millis>(), wall.number(0)});
+        settlement.wake_after_ms = std::max<millis>(0, *s.wake_at - at);
+    }
+    // Failure reasons stay in the mutable attempts table; an untrusted provider
+    // message never enters the hashed, immutable history.
+    const json disposition = {{"schema", "cogg:disposition/v1"}, {"reason", "occasion_failures"},
+                              {"limit", cap}, {"failures", failures}};
+    sql(db, "SAVEPOINT disposition");
+    try {
+        auto result = commit_locked(attempt, settlement, now, std::nullopt, nullptr, disposition);
+        sql(db, "RELEASE disposition");
+        tx.commit(); return result;
+    } catch (const std::exception&) {
+        // Settlement is best effort (for example memory pressure); the failure itself is kept.
+        sql(db, "ROLLBACK TO disposition; RELEASE disposition");
+        mark_failed(); tx.commit(); return std::nullopt;
+    }
+}
+FailureScope failure_scope(FailureKind kind) {
+    return kind == FailureKind::invalid_output || kind == FailureKind::backend ?
+        FailureScope::occasion : FailureScope::transient;
 }
 json Store::schedule(const std::string& subject, millis now) {
     check_time(now);
@@ -680,6 +766,12 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     std::string head;
     std::int64_t tick = 0;
     std::map<std::string, std::int64_t> chain; // verified commit id -> tick
+    std::set<std::string> disposed; // attempts that settled their occasion as undeliverable
+    bool failure_table = false;
+    {
+        Statement t(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='occasion_failures'");
+        t.row(); failure_table = t.number(0) == 1; // Absent in older files opened read-only.
+    }
     millis committed_wall = 0;
     BudgetHistory history;
     {
@@ -718,8 +810,31 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
                     ab.at("tick") == tick - 1 && ab.at("occasion") == oid && a.text(1) == "committed",
                     "attempt provenance mismatch");
             if (b.at("schema") >= 4) require(b.contains("emission"), "missing emission field");
-            validate_emission(b.value("emission", json(nullptr)), aid, ab, b.at("proposal"));
             auto p = parse_proposal(b.at("proposal"));
+            if (!b.contains("disposition")) {
+                validate_emission(b.value("emission", json(nullptr)), aid, ab, b.at("proposal"));
+            } else {
+                const auto& d = b.at("disposition");
+                const auto cap = limits.value("max_occasion_failures", std::int64_t{0});
+                require(failure_table && cap > 0 && d.is_object() && d.size() == 4 &&
+                        d.value("schema", "") == "cogg:disposition/v1" && d.value("reason", "") == "occasion_failures" &&
+                        d.at("limit") == cap && d.at("failures").is_array() &&
+                        static_cast<std::int64_t>(d.at("failures").size()) == cap &&
+                        d.at("failures").back() == aid, "disposition integrity failure");
+                require(b.at("emission").is_null() && p.kind == "null" && p.memory.empty() && p.notes.empty() &&
+                        b.at("inference_elapsed_ms").is_null(), "disposition carries transition content");
+                std::set<std::string> listed;
+                for (const auto& id : d.at("failures")) {
+                    const auto fid = id.get<std::string>();
+                    require(listed.insert(fid).second, "duplicate disposition failure");
+                    Statement f(db, "SELECT a.status,a.occasion,f.occasion FROM occasion_failures f "
+                                    "JOIN attempts a ON a.id=f.attempt WHERE f.attempt=? AND a.subject=?");
+                    f.bind(1, fid).bind(2, subject);
+                    require(f.row() && f.text(1) == oid && f.text(2) == oid &&
+                            f.text(0) == (fid == aid ? "committed" : "failed"), "disposition failure provenance mismatch");
+                }
+                disposed.insert(aid);
+            }
             for (const auto& w : p.memory) memory[w.key] = w.value;
             require(b.at("memory") == memory, "memory replay mismatch");
             const auto at = b.at("committed_at").get<millis>();
@@ -807,6 +922,15 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
             require(used.number(0) == 0, "abstained attempt committed");
         }
     }
+    if (failure_table) {
+        Statement f(db, "SELECT f.attempt,f.occasion,a.occasion,a.status FROM occasion_failures f "
+                        "JOIN attempts a ON a.id=f.attempt WHERE a.subject=?");
+        f.bind(1, subject);
+        while (f.row())
+            require(f.text(1) == f.text(2) && (f.text(3) == "failed" ||
+                    (f.text(3) == "committed" && disposed.count(f.text(0)) == 1)),
+                    "occasion failure index mismatch");
+    }
     Statement accounting(db, "SELECT accounting_wall FROM subjects WHERE id=?");
     accounting.bind(1, subject); accounting.row();
     require(accounting.number(0) == std::max(committed_wall, previous), "accounting projection mismatch");
@@ -821,8 +945,15 @@ json Store::record(const std::string& id) {
     require(hash(body) == id, "record hash mismatch");
     return body;
 }
+void Runtime::fail_scoped(const std::string& attempt, const std::string& reason, FailureScope scope,
+                          millis now, std::chrono::steady_clock::time_point started) {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started).count();
+    disposed_ = store_.fail(attempt, reason, scope, wall_clock_ ? wall_clock_() : add(now, elapsed));
+}
 std::optional<Snapshot> Runtime::step(const std::string& subject, millis now, const json& context) {
     abstention_.reset();
+    disposed_.reset();
     maintenance_error_.clear();
     if (!verified_.count(subject)) {
         store_.verify(subject);
@@ -846,8 +977,15 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now, co
     } catch (const Conflict&) {
         store_.fail(a->id, "stale transition");
         return std::nullopt;
+    } catch (const BackendFailure& e) {
+        fail_scoped(a->id, e.what(), failure_scope(e.kind), now, started); throw;
+    } catch (const ContextOverflow& e) {
+        // Memory pressure is cured by maintenance, never by discarding the message.
+        fail_scoped(a->id, e.what(), FailureScope::transient, now, started); throw;
     } catch (const std::exception& e) {
-        store_.fail(a->id, e.what()); throw;
+        // Anything else (a throwing backend, a rejected proposal) is attributed to
+        // the occasion; the transient kinds above cover infrastructure failures.
+        fail_scoped(a->id, e.what(), FailureScope::occasion, now, started); throw;
     }
     // A cache is not part of the subject transaction. Do not turn a cache error
     // into a failed inference or conceal a successful durable commit from callers.

@@ -17,12 +17,6 @@ void validate_execution(const json&);
 void validate_emission(const json& emission, const std::string& attempt,
                        const json& admission, const json& proposal);
 json make_emission(const Attempt&, const json& execution, const Proposal&, const json& provider = json::object());
-enum class FailureKind { backend, transport, timeout, invalid_output, credentials };
-struct BackendFailure : Error {
-    FailureKind kind;
-    explicit BackendFailure(const std::string& message, FailureKind failure = FailureKind::backend)
-        : Error(message), kind(failure) {}
-};
 class Registry {
 public:
     using Factory = std::function<std::unique_ptr<Backend>()>;

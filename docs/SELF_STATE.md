@@ -39,7 +39,9 @@ the original commitment; it cannot quietly change an existing promise.
 4. Run one executor outside SQLite's write transaction. Reject unauthorized self
    mutations before commit. A rejection spends the admitted attempt, leaves the
    head and request unchanged, and records `self_rejected`; it does not repair the
-   proposal or automatically try another model.
+   proposal or automatically try another model. Rejections count as occasion
+   failures: at the subject's limit the kernel settles the request as
+   undeliverable with a null transition (`disposed`), which cannot change self state.
 5. Commit valid proposals with execution/emission provenance through the existing
    atomic path. Abstention preserves the previous self state and pending occasion.
    Cancellation, late results and competing commits cannot publish a new self state.

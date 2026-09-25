@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -25,7 +26,22 @@ struct Limits {
     std::int64_t max_attempts = 20;
     millis period_ms = 3600000;
     millis max_wake_ms = 365LL * 24 * 60 * 60 * 1000;
+    // Occasion-scoped failures after which the kernel settles an occasion as
+    // undeliverable so the inbox advances. 0 disables disposition; subjects
+    // created before this field existed behave as 0.
+    std::int64_t max_occasion_failures = 3;
 };
+// Whom a failed attempt blames. Transport, timeout, credentials, cancellation and
+// conflicts are transient: an outage must never dispose of a healthy message.
+enum class FailureScope { transient, occasion };
+enum class FailureKind { backend, transport, timeout, invalid_output, credentials };
+struct BackendFailure : Error {
+    FailureKind kind;
+    explicit BackendFailure(const std::string& message, FailureKind failure = FailureKind::backend)
+        : Error(message), kind(failure) {}
+};
+// invalid_output and generic backend failures may be caused by the occasion itself.
+FailureScope failure_scope(FailureKind);
 struct Snapshot {
     std::string subject;
     std::int64_t tick = 0;
@@ -114,6 +130,12 @@ public:
     // Atomic, idempotent settlement; preserves head, memory, wake and pending occasion.
     std::string abstain(const std::string& attempt, const Abstention&, const json& provider = json::object());
     void fail(const std::string& attempt, const std::string& reason);
+    // Occasion-scoped failures count toward Limits::max_occasion_failures. At the
+    // limit the kernel settles the occasion with a host-authored null transition
+    // carrying a cogg:disposition/v1 record, preserving a pending future wake.
+    // Returns that snapshot; nullopt when the attempt was only marked failed.
+    std::optional<Snapshot> fail(const std::string& attempt, const std::string& reason,
+                                 FailureScope scope, millis now);
     // Read-only eligibility; polling never creates an occasion or a subject tick.
     json schedule(const std::string& subject, millis now);
     json clock(const std::string& subject);
@@ -134,6 +156,9 @@ public:
     json memory_record(const std::string& subject, const std::string& id);
 private:
     void verify_impl(const std::string& subject, bool compare_memory_index);
+    Snapshot commit_locked(const std::string& attempt, const Proposal& proposal, millis now,
+                           std::optional<millis> inference_elapsed_ms, const json& emission,
+                           const json& disposition);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
@@ -165,13 +190,18 @@ public:
     std::optional<Snapshot> step(const std::string& subject, millis now, const json& context = nullptr);
     const std::optional<Abstention>& last_abstention() const { return abstention_; }
     const std::string& maintenance_error() const { return maintenance_error_; }
+    // Set when the last step's failure made the kernel settle its occasion as undeliverable.
+    const std::optional<Snapshot>& last_disposition() const { return disposed_; }
 private:
+    void fail_scoped(const std::string& attempt, const std::string& reason, FailureScope scope,
+                     millis now, std::chrono::steady_clock::time_point started);
     Store& store_;
     Backend& backend_;
     std::function<millis()> wall_clock_;
     std::set<std::string> verified_;
     std::string maintenance_error_;
     std::optional<Abstention> abstention_;
+    std::optional<Snapshot> disposed_;
 };
 millis wall_now();
 } // namespace cogg

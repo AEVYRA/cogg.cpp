@@ -139,17 +139,22 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
         }
         const auto attempt_start = elapsed();
         const auto limit = std::min(route.attempt_timeout_ms, route.timeout_ms - attempt_start);
-        auto settled = [&](const std::string& status) {
-            store_.fail(a->id, status); result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", status}});
+        auto settled = [&](const std::string& status, FailureScope scope = FailureScope::transient) {
+            auto disposed = store_.fail(a->id, status, scope, wall());
+            result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", status}});
+            if (disposed) { result.snapshot = disposed; result.status = "disposed"; }
+            return disposed.has_value();
         };
         Outcome outcome;
         std::string failure;
+        auto scope = FailureScope::transient;
         try {
             if (limit <= 0) throw BackendFailure("timeout", FailureKind::timeout);
             outcome = backend.respond_attempt(*a, limit, cancelled);
             // Reject invalid model output before entering the commit transaction.
             (void)outcome_json(outcome);
         } catch (const BackendFailure& error) {
+            scope = failure_scope(error.kind);
             switch (error.kind) {
                 case FailureKind::transport: failure = "transport_failed"; break;
                 case FailureKind::timeout: failure = "timeout"; break;
@@ -157,9 +162,10 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
                 case FailureKind::credentials: failure = "credentials_unavailable"; break;
                 default: failure = "backend_failed";
             }
-        } catch (const std::exception&) { failure = "backend_failed"; }
+        } catch (const std::exception&) { failure = "backend_failed"; scope = FailureScope::occasion; }
         if (!failure.empty()) {
-            settled(failure);
+            // A cancelled route blames nobody, whatever the backend threw on the way out.
+            if (settled(failure, cancelled() ? FailureScope::transient : scope)) return result;
             if (cancelled()) { result.status = "cancelled"; return result; }
             if (elapsed() >= route.timeout_ms) { result.status = "timeout"; return result; }
             continue;
@@ -178,7 +184,8 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
             auto emission = make_emission(*a, session.execution, proposal, backend.telemetry());
             result.snapshot = store_.commit(a->id, proposal, wall(), {}, duration, emission);
         } catch (const Conflict&) { settled("conflict"); result.status = "conflict"; return result; }
-        catch (...) { settled("commit_rejected"); throw; }
+        catch (const ContextOverflow&) { settled("commit_rejected"); throw; } // Memory pressure: maintenance, not disposal.
+        catch (...) { if (settled("commit_rejected", FailureScope::occasion)) return result; throw; }
         result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", "committed"}});
         result.status = "committed";
         try { backend.committed(a->present, *result.snapshot); }

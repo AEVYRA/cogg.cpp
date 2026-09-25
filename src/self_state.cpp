@@ -196,11 +196,16 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
     result.attempt = a->id;
     const auto start = std::chrono::steady_clock::now();
     auto elapsed = [&] { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(); };
-    auto fail = [&](const char* status) { store_.fail(a->id, status); result.status = status; };
+    auto fail = [&](const char* status, FailureScope scope = FailureScope::transient) {
+        if (auto disposed = store_.fail(a->id, status, scope, now + elapsed())) { result.snapshot = disposed; result.status = "disposed"; }
+        else result.status = status;
+    };
     Outcome outcome;
     const char* failure = nullptr;
+    auto scope = FailureScope::transient;
     try { outcome = backend_.respond_attempt(*a, timeout, cancelled); (void)outcome_json(outcome); }
     catch (const BackendFailure& error) {
+        scope = failure_scope(error.kind);
         switch (error.kind) {
             case FailureKind::transport: failure = "transport_failed"; break;
             case FailureKind::timeout: failure = "timeout"; break;
@@ -209,17 +214,17 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
             default: failure = "backend_failed";
         }
     }
-    catch (...) { failure = "backend_failed"; }
+    catch (...) { failure = "backend_failed"; scope = FailureScope::occasion; }
     // Cancellation/deadline remain authoritative even when the backend throws.
     // Never persist an untrusted provider exception message.
     if (cancelled && cancelled()) { fail("cancelled"); return result; }
     const auto duration = elapsed();
     if (duration >= timeout) { fail("timeout"); return result; }
-    if (failure) { fail(failure); return result; }
+    if (failure) { fail(failure, scope); return result; }
     result.outcome = outcome_json(outcome);
     if (const auto* p = std::get_if<Proposal>(&outcome)) {
         try { apply(state, *p, g, std::string(64, '0')); (void)view_of(state, subject, std::string(64, '0')); }
-        catch (...) { fail("self_rejected"); return result; }
+        catch (...) { fail("self_rejected", FailureScope::occasion); return result; }
     }
     try {
         if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
@@ -230,7 +235,7 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
         result.snapshot = store_.commit(a->id, p, now, {}, duration, make_emission(*a, execution_, p, backend_.telemetry()));
     } catch (const ContextOverflow&) { fail("memory_pressure"); return result; }
     catch (const Conflict&) { fail("conflict"); return result; }
-    catch (...) { fail("commit_rejected"); throw; }
+    catch (...) { fail("commit_rejected", FailureScope::occasion); if (result.status == "disposed") return result; throw; }
     result.status = "committed";
     try { backend_.committed(a->present, *result.snapshot); }
     catch (...) { result.maintenance_error = "backend maintenance failed"; }
