@@ -323,8 +323,51 @@ void malformed_return_and_atomic_disposition() {
     check(result && result->tick == 1, "failure transaction was partially settled");
     s.verify("atomic");
 }
+void transition_guard_and_step_result() {
+    Temp t; Store s(t.path()); s.create("s", {1, 100, 1000}, 0);
+    s.set_transition_guard([](const std::string&, const Snapshot&, const json&, const Proposal& p) {
+        for (const auto& w : p.memory)
+            if (w.key == "forbidden") throw Error("transition guard blocked forbidden key");
+    });
+    auto a = admitted(s, 1);
+    Proposal bad; bad.memory = {{"forbidden", 1}};
+    rejects([&] { s.commit(a.id, bad, 1); });
+    check(s.snapshot("s").tick == 0 && s.snapshot("s").memory.empty(), "rejected guard commit mutated state");
+    Proposal good; good.memory = {{"allowed", 42}};
+    auto snap = s.commit(a.id, good, 1);
+    check(snap.tick == 1 && snap.memory.at("allowed") == 42, "allowed guard commit failed");
+    s.verify_head("s");
+    struct StepBackend : Backend {
+        int mode = 0;
+        std::string name() const override { return "step-engine/v1"; }
+        Proposal propose(const Present&) override { return {}; }
+        Outcome respond_attempt(const Attempt&, millis, const std::function<bool()>&) override {
+            if (mode == 0) { Proposal p; p.kind = "speech"; p.text = "ok"; return p; }
+            if (mode == 1) return Abstention{"uncertain", "hold"};
+            throw BackendFailure("bad output", FailureKind::invalid_output);
+        }
+    } b;
+    Runtime rt(s, b);
+    s.submit("s", "m1", {{"text", "hi"}}, 10);
+    auto r1 = rt.step_result("s", 10);
+    check(r1.status == "committed" && r1.snapshot && r1.snapshot->tick == 2, "step_result commit failed");
+    s.verify_head("s");
+    b.mode = 1;
+    s.submit("s", "m2", {{"text", "abstain"}}, 20);
+    auto r2 = rt.step_result("s", 20);
+    check(r2.status == "abstained" && r2.abstention && r2.abstention->reason == "uncertain", "step_result abstention failed");
+    b.mode = 2;
+    check(rt.step_result("s", 30).status == "invalid_output", "step_result first invalid_output");
+    check(rt.step_result("s", 40).status == "invalid_output", "step_result second invalid_output");
+    auto r3 = rt.step_result("s", 50);
+    check(r3.status == "disposed" && r3.snapshot && r3.snapshot->tick == 3, "step_result disposition failed");
+    s.verify("s");
+    mutate(t.path(), "UPDATE subjects SET memory='{\"tampered\":1}'");
+    rejects([&] { s.verify_head("s"); });
+}
 int main() {
     const std::pair<const char*, void(*)()> cases[] = {
+        {"transition guard, verify_head and step_result", transition_guard_and_step_result},
         {"malformed output and atomic disposition", malformed_return_and_atomic_disposition},
         {"unclassified failures keep occasion", unclassified_failures_keep_occasion},
         {"poison occasion disposition", poison_occasion_disposition},

@@ -33,9 +33,12 @@ proposal.notes.push_back({"return-telescope", "Return the telescope to Mira.", "
 ```
 
 A note contains `key`, `text`, `type`, `status`, `sources`, `covers`. Types are
-`note`, `fact`, `episode`, `task`, `summary`; statuses are `active`, `open`,
-`closed`, `retracted`. Only a task can be open. Types record the writer's
-interpretation, not externally verified truth, importance or confidence.
+`note`, `fact`, `episode`, `task`, `summary`, `procedure`, `prospective`; statuses
+are `active`, `open`, `closed`, `retracted`. Only a task can be open or closed.
+Active `procedure` notes require at least one non-summary, non-retracted source ID
+in `sources`, grounding procedural rules in concrete episodic or factual deposits.
+`prospective` notes represent future-oriented cues or triggers. Types record the
+writer's interpretation, not externally verified truth, importance or confidence.
 
 Limits per transition: eight typed notes; 128-byte key, 8192-byte text, 32 unique
 source IDs and cover IDs per note. Unknown fields and duplicate keys are rejected.
@@ -77,13 +80,19 @@ not SQLite file shrinking or archival retention enforcement.
 
 ## Retrieval and finite context
 
-`Store::recall(subject, MemoryPolicy)` offers three policies. The default
-`balanced` policy preserves current open tasks, then interleaves BM25 and recent
-lanes. `lexical` and `recent` are explicit comparison baselines and do not provide
-the open-task guarantee. A recent lane ordinarily excludes covered originals;
-lexical lookup retains access to them. Default recall excludes superseded,
-retracted and stale-summary entries. Historical recall labels each entry with
-`current` and `summary_stale` at the selected head.
+`Store::recall(subject, MemoryPolicy)` supports `balanced` (default), `hybrid`,
+`semantic`, `lexical`, `recent` and `task_maintenance`. `balanced`, `hybrid` and
+`semantic` preserve current open tasks, then interleave lexical (BM25),
+semantic/synonym (`MemoryPolicy::synonyms`, built-in concept clusters, and optional
+`MemoryPolicy::semantic_scorer`), procedural (`procedure` and `prospective` notes)
+and recent lanes (`balanced` activates the semantic fallback lane when exact
+lexical lookup returns no hits or when custom synonyms/scorers are supplied;
+`hybrid` runs all lanes on every query). `lexical` and `recent` are explicit
+comparison baselines and do not provide the open-task guarantee. A recent lane
+ordinarily excludes covered originals; lexical and semantic lookup retain access
+to them. Default recall excludes superseded, retracted and stale-summary entries.
+Historical recall labels each entry with `current` and `summary_stale` at the
+selected head.
 
 SQLite FTS5 supplies Unicode lexical matching. Input is split into at most 32
 quoted terms joined by OR; it never becomes raw SQL or unescaped FTS syntax.

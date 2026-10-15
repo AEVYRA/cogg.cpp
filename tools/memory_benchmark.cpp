@@ -59,7 +59,7 @@ int main() {
             {"strategies", json::array()},
             {"scope", "Evidence selection only; no answer-generating model or competitor deployment. Cases "
                       "are deterministic mechanism probes, not an external quality benchmark."}};
-        for (const auto &strategy : {"recent", "lexical", "balanced"}) {
+        for (const auto &strategy : {"recent", "lexical", "balanced", "hybrid", "semantic"}) {
             json rows = json::array();
             int hits = 0;
             double ms = 0;

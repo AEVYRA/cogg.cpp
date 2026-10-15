@@ -1,11 +1,14 @@
 #pragma once
 #include "cogg/routing.hpp"
+#include <map>
 
 namespace cogg {
 // Optional trusted-host policy over ordinary memory. No extra database or kernel fields.
-// All writers of a guarded subject must use this policy; inspect_self detects bypasses.
+// All writers of a guarded subject must use this policy; inspect_self detects bypasses,
+// and install_self_guard(store) enforces the guard directly inside Store::commit.
 json self_profile(const json& application_data);
 json inspect_self(Store&, const std::string& subject);
+void install_self_guard(Store& store);
 // Exact, host-issued permissions. A grant is bound to one subject/head/occasion.
 // create: {"self.commitment.ID":"exact terms"}
 // settle: {"self.commitment.ID":{"version":"last commit", "status":"closed"|"retracted"}}
@@ -31,8 +34,16 @@ public:
                     const json& inputs = json::array(), millis timeout_ms = 30000,
                     const std::function<bool()>& cancelled = {});
 private:
+    struct CachedSubject {
+        std::string head;
+        json profile;
+        std::string profile_version;
+        std::map<std::string, json> tasks;
+        json view;
+    };
     Store& store_;
     Backend& backend_;
     json execution_;
+    std::map<std::string, CachedSubject> cache_;
 };
 } // namespace cogg

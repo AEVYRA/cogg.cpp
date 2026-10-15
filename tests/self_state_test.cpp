@@ -249,7 +249,36 @@ void unknown_self_failure_keeps_input() {
     check(s.snapshot("s").tick == 0, "unknown self failure advanced head");
     s.verify("s");
 }
+void store_guard_and_incremental_cache() {
+    Temp t; Store s(t.db()); install_self_guard(s); create(s);
+    Organ b([](const Present&) -> Outcome { return note(); });
+    SelfRuntime r(s, b, execution(b));
+    // Direct unguarded Store::commit mutating self.* is blocked inside commit_locked when install_self_guard is active.
+    auto unguarded = *s.admit("s", "unguarded", 0);
+    const auto initial_head = s.snapshot("s").head;
+    rejects([&] { s.commit(unguarded.id, note(), 0); });
+    s.fail(unguarded.id, "rejected");
+    check(s.snapshot("s").head == initial_head, "guarded store allowed unguarded self mutation");
+    // Authorized SelfRuntime step succeeds and updates the head-checked cache.
+    auto created = r.step("s", 2, grant(s, {{key, terms}}));
+    check(created.status == "committed" && created.snapshot, "authorized creation failed under store guard");
+    // Subsequent steps reuse the incremental cache in O(1) while preserving open commitments.
+    for (int i = 1; i <= 5; ++i) {
+        const millis at = i * 10;
+        s.submit("s", "step-" + std::to_string(i), {{"text", "status"}}, at);
+        b.fn = [i](const Present& p) -> Outcome {
+            const auto& view = p.inputs.back().at("body").at("content").at("view");
+            check(view.at("open").size() == 1 && view.at("open")[0].at("text") == terms, "incremental cache lost commitment");
+            Proposal out; out.kind = "speech"; out.text = "step " + std::to_string(i);
+            out.memory.push_back({"step", i});
+            return out;
+        };
+        auto res = r.step("s", at);
+        check(res.status == "committed" && res.snapshot->memory.at("step") == i, "incremental self step failed");
+    }
+    s.verify("s");
+}
 int main() {
-    try { unknown_self_failure_keeps_input(); failure_classification(); bounded_history_reconstitution(); continuity(); guards(); failures_and_bypass(); wake_binding(); disposition(); std::cout << "self-state contract passed\n"; }
+    try { store_guard_and_incremental_cache(); unknown_self_failure_keeps_input(); failure_classification(); bounded_history_reconstitution(); continuity(); guards(); failures_and_bypass(); wake_binding(); disposition(); std::cout << "self-state contract passed\n"; }
     catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

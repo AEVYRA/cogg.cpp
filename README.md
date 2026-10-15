@@ -12,7 +12,7 @@ changes atomically to a SHA-256 history chain. After a process crash, the host
 can reopen the database and continue from the last committed state. Interrupted
 inference may run again and produce different text.
 
-**Status: experimental, v0.12.0.** The project originated in the Physalia Gyre
+**Status: experimental, v0.13.0.** The project originated in the Physalia Gyre
 research program and can be embedded independently. Logical clocks and stored
 self-state are runtime mechanisms; they do not establish subjective experience.
 
@@ -22,7 +22,8 @@ self-state are runtime mechanisms; they do not establish subjective experience.
   admission accounting and verifiable commit history.
 - **Bounded waking:** model-requested wake times constrained by host intervals
   and attempt quotas.
-- **Memory:** typed deposits, protected open tasks, version-aware lexical
+- **Memory:** typed deposits (`fact`, `episode`, `task`, `summary`, `procedure`,
+  `prospective`), protected open tasks, version-aware lexical + synonym/semantic
   retrieval and source-linked compaction.
 - **Executor choices:** a native CPU [llama.cpp](https://github.com/ggml-org/llama.cpp)
   adapter, optional Ollama/Chat Completions adapters, or a custom C++ backend.
@@ -31,6 +32,21 @@ self-state are runtime mechanisms; they do not establish subjective experience.
   executors reconstruct context and do not transfer native KV.
 - **Optional host modules:** guarded self-state, a separate terminal client
   and host, and image observation with retained memory.
+
+## Core and memory improvements in v0.13
+
+`Runtime`, `RoutedRuntime` and `SelfRuntime` now share a unified attempt
+execution engine (`execute_attempt` / `StepResult`) with consistent deadline,
+cancellation, abstention and failure-scope accounting. `Store::set_transition_guard`
+and `install_self_guard` allow hosts to enforce transition invariants directly inside
+`Store::commit` before SQL commit, and `SelfRuntime` maintains a head-checked
+incremental self-state cache with $O(1)$ tip verification (`Store::verify_head`).
+
+Memory v0.13 adds grounded `procedure` deposits (requiring explicit non-summary
+source evidence in the subject chain), `prospective` cues, and a semantic/synonym
+retrieval lane (`hybrid` / `semantic` strategies, `MemoryPolicy::synonyms` and
+`MemoryPolicy::semantic_scorer`). See [Kernel](docs/KERNEL.md),
+[Self-state](docs/SELF_STATE.md) and [Memory](docs/MEMORY.md).
 
 ## Recovery improvements in v0.12
 

@@ -43,6 +43,7 @@ struct BackendFailure : Error {
 // Only an explicit invalid-output failure counts automatically. Unknown backend
 // failures can be infrastructure faults and must preserve the occasion.
 FailureScope failure_scope(FailureKind);
+const char* failure_reason(FailureKind);
 struct Snapshot {
     std::string subject;
     std::int64_t tick = 0;
@@ -106,6 +107,11 @@ struct Attempt {
 };
 enum class CommitPoint { before_sql_commit, after_sql_commit };
 
+// Optional commit-time transition guard invoked inside Store::commit_locked before
+// any SQL state mutation. Throwing an Error rolls back the commit transaction.
+using TransitionGuard = std::function<void(const std::string& subject, const Snapshot& state,
+                                           const json& admission, const Proposal& proposal)>;
+
 // Trusted host API. One Store connection per thread; independent connections
 // cooperate through SQLite transactions. Model adapters receive an Attempt/Present, never a Store.
 enum class OpenMode { read_write, read_only };
@@ -116,6 +122,7 @@ public:
     ~Store();
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
+    void set_transition_guard(TransitionGuard guard);
     void create(const std::string& subject, Limits limits, millis now,
                 const json& initial_memory = json::object());
     Snapshot snapshot(const std::string& subject);
@@ -153,6 +160,8 @@ public:
     json commits_page(const std::string& subject, std::int64_t after_tick = -1,
                       std::size_t limit = 64, const std::string& expected_head = "");
     void verify(const std::string& subject);
+    // Fast O(1) tip check verifying the head commit record, parent link and projection.
+    void verify_head(const std::string& subject);
     json recall(const std::string& subject, MemoryPolicy policy = {});
     json open_tasks(const std::string& subject, const std::string& after_key = "", std::size_t limit = 8);
     void rebuild_memory(const std::string& subject);
@@ -164,6 +173,7 @@ private:
                            const json& disposition);
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    TransitionGuard transition_guard_;
 };
 
 class Backend {
@@ -184,6 +194,30 @@ public:
     // Exceptions cannot undo the commit and are reported by Runtime separately.
     virtual void committed(const Present&, const Snapshot&) {}
 };
+
+// Unified attempt execution result shared across Runtime, RoutedRuntime and SelfRuntime.
+struct StepResult {
+    std::string status = "waiting";
+    std::optional<Snapshot> snapshot;
+    std::optional<Abstention> abstention;
+    std::string abstention_receipt;
+    json outcome = nullptr;
+    std::string attempt_id;
+    std::string error_reason;
+    std::string maintenance_error;
+    std::exception_ptr exception = nullptr;
+};
+
+using ProposalGuard = std::function<std::optional<std::string>(const Proposal&)>;
+
+StepResult execute_attempt(Store& store, Backend& backend, const Attempt& attempt, millis now,
+                           const json& execution = nullptr, millis timeout_ms = 3600000,
+                           const std::function<bool()>& cancelled = {},
+                           const ProposalGuard& proposal_guard = {},
+                           const std::function<millis()>& wall_clock = {},
+                           bool redact_diagnostics = true,
+                           bool rethrow_commit_overflow = false);
+
 class Runtime {
 public:
     // Pass a wall sampler in a live host to observe clock adjustments during inference.
@@ -191,6 +225,8 @@ public:
     Runtime(Store& store, Backend& backend, std::function<millis()> wall_clock = {})
         : store_(store), backend_(backend), wall_clock_(std::move(wall_clock)) {}
     std::optional<Snapshot> step(const std::string& subject, millis now, const json& context = nullptr);
+    StepResult step_result(const std::string& subject, millis now, const json& context = nullptr,
+                           millis timeout_ms = 3600000, const std::function<bool()>& cancelled = {});
     const std::optional<Abstention>& last_abstention() const { return abstention_; }
     const std::string& maintenance_error() const { return maintenance_error_; }
     // Set when the last step's failure made the kernel settle its occasion as undeliverable.

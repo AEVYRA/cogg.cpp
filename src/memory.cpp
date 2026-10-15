@@ -72,18 +72,25 @@ void policy_ok(const MemoryPolicy &p) {
     need(p.max_bytes >= 256 && p.max_bytes <= 1048576 && p.max_items > 0 && p.max_items <= 256 &&
              p.candidate_limit >= p.max_items && p.candidate_limit <= 512 && p.query.size() <= 65536,
          "invalid memory policy");
-    need(p.strategy == "balanced" || p.strategy == "lexical" || p.strategy == "recent" || p.strategy == "task_maintenance",
+    need(p.strategy == "balanced" || p.strategy == "hybrid" || p.strategy == "semantic" ||
+             p.strategy == "lexical" || p.strategy == "recent" || p.strategy == "task_maintenance",
          "unknown memory strategy");
     need(p.strategy == "task_maintenance" ? (!p.maintenance_ids.empty() && p.maintenance_ids.size() <= 8 &&
          std::set<std::string>(p.maintenance_ids.begin(), p.maintenance_ids.end()).size() == p.maintenance_ids.size()) : p.maintenance_ids.empty(),
          "maintenance requires 1..8 distinct source IDs and task_maintenance strategy");
+    need(p.synonyms.size() <= 64, "too many synonym entries in memory policy");
+    for (const auto &[k, vals] : p.synonyms) {
+        text_ok(k, 128);
+        need(vals.size() <= 16, "too many synonyms for one term");
+        for (const auto &v : vals)
+            text_ok(v, 128);
+    }
 }
-// Quote each token: user input never becomes FTS boolean syntax or SQL.
-std::string terms(const std::string &s) {
+std::vector<std::string> tokenize_words(const std::string &s, std::size_t max_words = 32) {
     std::vector<std::string> words;
     std::string word;
     auto flush = [&] {
-        if (!word.empty() && words.size() < 32)
+        if (!word.empty() && words.size() < max_words)
             words.push_back(word);
         word.clear();
     };
@@ -95,8 +102,66 @@ std::string terms(const std::string &s) {
             flush();
     }
     flush();
+    return words;
+}
+std::string ascii_lower(std::string s) {
+    for (char &c : s)
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    return s;
+}
+// Quote each token: user input never becomes FTS boolean syntax or SQL.
+std::string terms(const std::string &s) {
+    const auto words = tokenize_words(s, 32);
     std::string out;
     for (const auto &w : words) {
+        if (!out.empty())
+            out += " OR ";
+        out += '"' + w + '"';
+    }
+    return out;
+}
+std::string expanded_terms(const std::string &s,
+                           const std::map<std::string, std::vector<std::string>> &custom) {
+    static const std::vector<std::vector<std::string>> clusters = {
+        {"automobile", "car", "vehicle", "auto", "truck", "transport", "tag", "plate", "registration", "license"},
+        {"destination", "delivery", "city", "location", "route", "shipment", "address"},
+        {"workshop", "access", "code", "password", "pin", "passcode", "key", "door", "locker"},
+        {"commitment", "promise", "obligation", "task", "duty", "reminder", "return"},
+        {"telescope", "lens", "optics", "instrument"},
+        {"camera", "photo", "photos", "photographs", "picture", "card"},
+        {"procedure", "workflow", "protocol", "steps", "runbook", "checklist", "method"},
+        {"книга", "книгу", "книги", "том", "издание", "шкаф", "шкафу", "комод", "комоде", "полка"},
+        {"автомобиль", "машина", "транспорт", "номер", "регистрация"}};
+    const auto base = tokenize_words(s, 32);
+    std::set<std::string> base_lower;
+    for (const auto &w : base)
+        base_lower.insert(ascii_lower(w));
+    std::vector<std::string> extra;
+    std::set<std::string> seen_extra;
+    auto push_token = [&](const std::string &tok) {
+        for (const auto &clean : tokenize_words(tok, 8)) {
+            const auto low = ascii_lower(clean);
+            if (!base_lower.count(low) && seen_extra.insert(low).second && extra.size() < 32)
+                extra.push_back(clean);
+        }
+    };
+    for (const auto &w : base) {
+        const auto low = ascii_lower(w);
+        for (const auto &[k, vals] : custom) {
+            if (ascii_lower(k) == low)
+                for (const auto &v : vals)
+                    push_token(v);
+        }
+        for (const auto &cluster : clusters) {
+            if (std::find(cluster.begin(), cluster.end(), low) != cluster.end()) {
+                for (const auto &syn : cluster)
+                    push_token(syn);
+            }
+        }
+    }
+    std::string out;
+    for (const auto &w : extra) {
         if (!out.empty())
             out += " OR ";
         out += '"' + w + '"';
@@ -165,11 +230,11 @@ void validate_memory_notes(const std::vector<MemoryNote> &notes) {
         text_ok(n.text, 8192);
         need(keys.insert(n.key).second, "duplicate typed memory key");
         need(n.type == "note" || n.type == "fact" || n.type == "episode" || n.type == "task" ||
-                 n.type == "summary",
+                 n.type == "summary" || n.type == "procedure" || n.type == "prospective",
              "invalid memory type");
         need(n.status == "active" || n.status == "open" || n.status == "closed" || n.status == "retracted",
              "invalid memory status");
-        need(n.status != "open" || n.type == "task", "only tasks can be open");
+        need((n.status != "open" && n.status != "closed") || n.type == "task", "only tasks can be open or closed");
         need(n.sources.size() <= output_limits::sources && n.covers.size() <= output_limits::sources, "too many memory sources");
         std::set<std::string> src, cover;
         for (const auto &x : n.sources) {
@@ -182,6 +247,8 @@ void validate_memory_notes(const std::vector<MemoryNote> &notes) {
         need(n.covers.empty() || (n.type == "summary" && n.status == "active"),
              "only an active summary can compact");
         need(n.type != "summary" || !n.sources.empty(), "summary requires evidence sources");
+        need(n.type != "procedure" || n.status == "retracted" || !n.sources.empty(),
+             "procedure requires evidence sources");
     }
 }
 namespace detail {
@@ -208,6 +275,10 @@ void memory_apply(sqlite3 *db, const std::string &subject, const std::string &pa
         for (const auto &id : n.sources) {
             auto b = get(db, subject, id);
             need(b.at("tick").get<std::int64_t>() < tick, "same-transition memory source");
+            if (n.type == "procedure") {
+                need(b.at("note").at("status") != "retracted", "procedure cannot cite a retracted source");
+                need(b.at("note").at("type") != "summary", "procedure requires non-summary evidence sources");
+            }
             if (n.type == "summary") {
                 Q current(db, "SELECT current FROM memory_entries WHERE id=?");
                 current.bind(1, id); current.row();
@@ -389,7 +460,8 @@ void memory_verify(sqlite3 *db, const std::string &subject, bool compare) {
 }
 json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPolicy &p) {
     policy_ok(p);
-    json mandatory = json::array(), lex = json::array(), recent = json::array();
+    json mandatory = json::array(), lex = json::array(), sem = json::array(), proc = json::array(),
+         recent = json::array();
     Q head(db, "SELECT tick FROM subjects WHERE id=?");
     head.bind(1, subject);
     need(head.row(), "subject missing");
@@ -399,7 +471,9 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
             out.push_back(wire_at(db, subject, json::parse(q.str(0)), at));
     };
     const auto limit = static_cast<std::int64_t>(p.candidate_limit);
-    if (p.strategy == "balanced") {
+    const bool protects_tasks =
+        (p.strategy == "balanced" || p.strategy == "hybrid" || p.strategy == "semantic");
+    if (protects_tasks) {
         Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " + current_filter +
                     " AND json_extract(e.body,'$.note.type')='task' AND "
                     "json_extract(e.body,'$.note.status')='open' ORDER BY e.tick,e.id LIMIT ?");
@@ -426,7 +500,46 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
         q.bind(1, query).bind(2, subject).bind(3, limit);
         collect(q, lex);
     }
-    if (p.strategy != "lexical" && p.strategy != "task_maintenance") {
+    const bool run_semantic =
+        (p.strategy == "hybrid" || p.strategy == "semantic" ||
+         (p.strategy == "balanced" && (lex.empty() || !p.synonyms.empty() || bool(p.semantic_scorer))));
+    if (run_semantic) {
+        if (p.semantic_scorer) {
+            Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " +
+                        (p.history ? "1" : current_filter + " AND " + uncovered_filter) +
+                        " ORDER BY e.tick DESC,e.id LIMIT ?");
+            q.bind(1, subject).bind(2, limit * 4);
+            std::vector<std::pair<double, json>> scored;
+            while (q.row()) {
+                auto w = wire_at(db, subject, json::parse(q.str(0)), at);
+                const double sc = p.semantic_scorer(w, p.query);
+                if (sc > 0.0)
+                    scored.emplace_back(sc, std::move(w));
+            }
+            std::stable_sort(scored.begin(), scored.end(),
+                             [](const auto &a, const auto &b) { return a.first > b.first; });
+            for (std::size_t i = 0; i < scored.size() && i < p.candidate_limit; ++i)
+                sem.push_back(std::move(scored[i].second));
+        }
+        auto exp_query = expanded_terms(p.query, p.synonyms);
+        if (!exp_query.empty()) {
+            Q q(db, "SELECT e.body FROM memory_fts JOIN memory_entries e ON e.id=memory_fts.id WHERE "
+                    "memory_fts MATCH ? AND e.subject=? AND " +
+                        (p.history ? "1" : current_filter) +
+                        " ORDER BY bm25(memory_fts),e.tick DESC,e.id LIMIT ?");
+            q.bind(1, exp_query).bind(2, subject).bind(3, limit);
+            collect(q, sem);
+        }
+    }
+    if (protects_tasks) {
+        Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " +
+                    (p.history ? "1" : current_filter) +
+                    " AND json_extract(e.body,'$.note.type') IN ('procedure','prospective') "
+                    "ORDER BY e.tick DESC,e.id LIMIT ?");
+        q.bind(1, subject).bind(2, limit);
+        collect(q, proc);
+    }
+    if (p.strategy != "lexical" && p.strategy != "semantic" && p.strategy != "task_maintenance") {
         Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " +
                     (p.history ? "1" : current_filter + " AND " + uncovered_filter) +
                     " ORDER BY e.tick DESC,e.id LIMIT ?");
@@ -442,11 +555,25 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
     };
     for (auto &x : mandatory)
         add(x, true, "open_task");
-    for (std::size_t i = 0; i < std::max(lex.size(), recent.size()); ++i) {
-        if (i < lex.size())
-            add(lex[i], false, "lexical");
-        if (i < recent.size())
-            add(recent[i], false, "recent");
+    const auto rounds = std::max({lex.size(), sem.size(), proc.size(), recent.size()});
+    for (std::size_t i = 0; i < rounds; ++i) {
+        if (p.strategy == "semantic") {
+            if (i < sem.size())
+                add(sem[i], false, "semantic");
+            if (i < lex.size())
+                add(lex[i], false, "lexical");
+            if (i < proc.size())
+                add(proc[i], false, "procedure");
+        } else {
+            if (i < lex.size())
+                add(lex[i], false, "lexical");
+            if (i < sem.size())
+                add(sem[i], false, "semantic");
+            if (i < proc.size())
+                add(proc[i], false, "procedure");
+            if (i < recent.size())
+                add(recent[i], false, "recent");
+        }
     }
     Q count(db, "SELECT count(*) FROM memory_entries WHERE subject=?");
     count.bind(1, subject);

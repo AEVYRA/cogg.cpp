@@ -71,9 +71,12 @@ The actual created event ID and the pre-admission schedule are both recorded.
 If another attempt materializes the wake first, rebuild the grant/context using
 the now-concrete ID. Stale contexts fail without a new attempt charge.
 
-The optional guard is a **trusted-host convention**. All writers of a guarded
-subject must use it. A direct `Store::commit` can bypass the guard; `inspect_self`
-then rejects that history. Hashes establish integrity and recorded lineage, not
+The optional guard is a **trusted-host convention** by default, or can be enforced
+at the kernel commit boundary via `install_self_guard(store)` (which registers a
+`TransitionGuard` on `Store::commit`). Without `install_self_guard`, a direct
+`Store::commit` can bypass the guard and `inspect_self` later rejects that history;
+with `install_self_guard(store)`, unguarded `self.*` mutations are rejected
+transactional-atomically inside `Store::commit`. Hashes establish integrity and recorded lineage, not
 cryptographic authorization by a person. A host with database access can fabricate
 grants. Signing, permission delegation and external action confirmation are not
 implemented here.
@@ -94,8 +97,10 @@ through their own observation/action protocols.
   These are independent caps, not a promise all maxima fit together.
 - Replay retains settled IDs to prevent reuse, but prompts contain only the active
   view plus a settled count. Full history remains accessible through core APIs.
-- Inspection currently reads/verifies full history: cost grows with history and
-  attempts. This is a small correctness-first adapter, not a large-history cache.
+- `inspect_self` reads/verifies full history. In v0.13.0, `SelfRuntime` caches the
+  verified self state per subject head and uses `Store::verify_head` on subsequent
+  steps, advancing in $O(1)$ and re-running full replay only if an external writer
+  changed the subject head.
   Concurrent head changes during inspection cause a conflict for the host to retry.
 - Self profile initialization is supported at genesis only. Existing plain subjects
   remain plain unless an explicit future migration policy is implemented.

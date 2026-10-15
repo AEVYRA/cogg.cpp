@@ -241,6 +241,79 @@ void crash() {
     }
     std::cout << "PASS SIGKILL before/after atomic typed-memory commit\n";
 }
+void procedural_and_semantic_retrieval() {
+    Temp tmp;
+    Store s(tmp.db());
+    s.create("s", {1, 10000, 1000000}, 0);
+    write(s,
+          {{"ep-deploy-1", "Deployment failed when migration lock was not released before schema upgrade.", "episode"},
+           {"transport", "My car tag is QJ-417.", "fact"},
+           {"project-note", "Project borealis launched in northern sector.", "fact"}},
+          1);
+    const auto ep_id = entry(recall(s, "migration"), "ep-deploy-1").at("id").get<std::string>();
+    // Active procedure without sources is rejected; open/closed status on procedure or prospective is rejected.
+    rejects([&] { write(s, {{"bad-proc", "Unproven steps", "procedure", "active", {}, {}}}, 2); },
+            "procedure requires evidence sources");
+    rejects([&] { write(s, {{"bad-open", "Invalid open", "procedure", "open", {ep_id}, {}}}, 3); },
+            "only tasks can be open or closed");
+    rejects([&] { write(s, {{"bad-prosp", "Invalid open", "prospective", "open", {}, {}}}, 4); },
+            "only tasks can be open or closed");
+    // Grounded procedure and prospective cue commit and survive long episodic noise.
+    write(s,
+          {{"deploy-runbook", "Always release migration lock before running schema upgrade.", "procedure", "active", {ep_id}, {}},
+           {"release-cue", "When preparing a release, verify the staging migration lock first.", "prospective", "active", {}, {}}},
+          5);
+    for (int i = 0; i < 60; ++i)
+        write(s,
+              {{"noise-" + std::to_string(i),
+                std::string(300, 'x') + " routine weather observation " + std::to_string(i), "episode"}},
+              10 + i);
+    // Synonym/paraphrase retrieval ("automobile registration" -> "My car tag is QJ-417.") succeeds in balanced/hybrid/semantic.
+    for (const auto *strat : {"balanced", "hybrid", "semantic"}) {
+        MemoryPolicy syn_policy;
+        syn_policy.strategy = strat;
+        syn_policy.query = "automobile registration";
+        syn_policy.max_bytes = 2400;
+        syn_policy.max_items = 4;
+        auto syn_view = s.recall("s", syn_policy);
+        check(has(syn_view, "transport"), "synonym recall missed transport fact");
+        check(entry(syn_view, "transport").at("text").get<std::string>().find("QJ-417") != std::string::npos,
+              "wrong transport text");
+    }
+    // Procedural and prospective notes remain visible in hybrid recall despite 60 newer episodes.
+    MemoryPolicy proc_policy;
+    proc_policy.strategy = "hybrid";
+    proc_policy.query = "unrelated topic";
+    proc_policy.max_bytes = 3200;
+    proc_policy.max_items = 4;
+    auto proc_view = s.recall("s", proc_policy);
+    check(has(proc_view, "deploy-runbook") && has(proc_view, "release-cue"),
+          "procedural or prospective memory crowded out by episode noise");
+    // Custom policy synonyms and custom semantic_scorer callback work and produce verifiable admission receipts.
+    MemoryPolicy custom;
+    custom.strategy = "hybrid";
+    custom.query = "northern codename";
+    custom.synonyms["codename"] = {"borealis", "zephyr"};
+    custom.max_bytes = 2400;
+    custom.max_items = 4;
+    check(has(s.recall("s", custom), "project-note"), "custom synonym expansion failed");
+    MemoryPolicy scorer_policy;
+    scorer_policy.strategy = "semantic";
+    scorer_policy.query = "custom scorer probe";
+    scorer_policy.max_bytes = 2400;
+    scorer_policy.max_items = 4;
+    scorer_policy.semantic_scorer = [](const json &item, const std::string &) {
+        return item.at("key") == "project-note" ? 0.95 : 0.0;
+    };
+    s.submit("s", "sem-admit", {{"text", "custom scorer probe"}}, 100);
+    auto admitted = s.admit("s", "fixture", 100, scorer_policy);
+    check(admitted && has(json{{"view", admitted->present.memory_view}}, "project-note"),
+          "custom semantic_scorer admission failed");
+    s.commit(admitted->id, Proposal{}, 100);
+    s.rebuild_memory("s");
+    s.verify("s");
+    std::cout << "PASS procedural/prospective memory, synonym expansion, hybrid/semantic lanes\n";
+}
 } // namespace
 int main() {
     try {
@@ -248,6 +321,7 @@ int main() {
         cross_connection_integrity();
         lifecycle();
         boundaries();
+        procedural_and_semantic_retrieval();
         crash();
         return 0;
     } catch (const std::exception &e) {

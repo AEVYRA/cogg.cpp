@@ -139,61 +139,35 @@ RouteResult RoutedRuntime::step(const std::string& subject, const Route& route, 
         }
         const auto attempt_start = elapsed();
         const auto limit = std::min(route.attempt_timeout_ms, route.timeout_ms - attempt_start);
-        auto settled = [&](const std::string& status, FailureScope scope = FailureScope::transient) {
-            auto disposed = store_.fail(a->id, status, scope, wall());
-            result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", status}});
-            if (disposed) { result.snapshot = disposed; result.status = "disposed"; }
-            return disposed.has_value();
-        };
-        Outcome outcome;
-        std::string failure;
-        auto scope = FailureScope::transient;
-        try {
-            if (limit <= 0) throw BackendFailure("timeout", FailureKind::timeout);
-            outcome = backend.respond_attempt(*a, limit, cancelled);
-            // Reject invalid model output before entering the commit transaction.
-            validate_backend_outcome(outcome);
-        } catch (const BackendFailure& error) {
-            scope = failure_scope(error.kind);
-            switch (error.kind) {
-                case FailureKind::transport: failure = "transport_failed"; break;
-                case FailureKind::timeout: failure = "timeout"; break;
-                case FailureKind::invalid_output: failure = "invalid_output"; break;
-                case FailureKind::credentials: failure = "credentials_unavailable"; break;
-                default: failure = "backend_failed";
-            }
-        } catch (...) { failure = "backend_failed"; }
-        // Cancellation and BOTH deadlines win even when the backend throws.
-        // Classify them before any occasion-scoped settlement can consume input.
-        const auto duration = elapsed() - attempt_start;
-        if (cancelled()) { settled("cancelled"); result.status = "cancelled"; return result; }
-        if (duration >= limit) {
-            settled("timeout");
-            if (elapsed() >= route.timeout_ms) { result.status = "timeout"; return result; }
-            continue;
+        auto step = execute_attempt(store_, backend, *a, wall(), session.execution, limit,
+                                    cancelled, {}, wall_clock_, true, true);
+        if (step.status == "committed") {
+            result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", "committed"}});
+            result.status = "committed";
+            result.snapshot = step.snapshot;
+            result.maintenance_error = step.maintenance_error;
+            return result;
         }
-        if (!failure.empty()) {
-            if (settled(failure, scope)) return result;
-            continue;
+        if (step.status == "abstained") {
+            result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", "abstained"},
+                {"receipt", step.abstention_receipt}, {"outcome", step.outcome}});
+            result.status = "abstained";
+            return result;
         }
-        try {
-            if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
-                auto receipt = store_.abstain(a->id, *abstention, backend.telemetry());
-                result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", "abstained"},
-                    {"receipt", receipt}, {"outcome", outcome_json(outcome)}});
-                result.status = "abstained"; return result;
-            }
-            const auto& proposal = std::get<Proposal>(outcome);
-            auto emission = make_emission(*a, session.execution, proposal, backend.telemetry());
-            result.snapshot = store_.commit(a->id, proposal, wall(), {}, duration, emission);
-        } catch (const Conflict&) { settled("conflict"); result.status = "conflict"; return result; }
-        catch (const ContextOverflow&) { settled("commit_rejected"); throw; } // Memory pressure: maintenance, not disposal.
-        catch (...) { settled("commit_rejected"); throw; }
-        result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", "committed"}});
-        result.status = "committed";
-        try { backend.committed(a->present, *result.snapshot); }
-        catch (...) { result.maintenance_error = "backend maintenance failed"; }
-        return result;
+        result.attempts.push_back({{"executor", id}, {"attempt", a->id}, {"status", step.error_reason}});
+        if (step.status == "disposed") {
+            result.status = "disposed";
+            result.snapshot = step.snapshot;
+            return result;
+        }
+        if (step.status == "conflict" || step.status == "cancelled") {
+            result.status = step.status;
+            return result;
+        }
+        if (step.status == "timeout" && elapsed() >= route.timeout_ms) {
+            result.status = "timeout";
+            return result;
+        }
     }
     if (elapsed() >= route.timeout_ms) result.status = "timeout";
     return result;

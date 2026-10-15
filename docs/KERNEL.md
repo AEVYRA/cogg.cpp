@@ -109,8 +109,15 @@ process. CLI polling uses a short sleep and does not write on every idle poll.
 
 ## Recovery and evidence
 
+`Runtime`, `RoutedRuntime` and `SelfRuntime` share the unified `execute_attempt`
+step engine (`Runtime::step_result` exposes the structured `StepResult` directly).
 `Runtime` and `RoutedRuntime` verify a subject before their first admission for
-it; later steps rely on the head-checked commit path. Call `Store::verify` for a
+it; later steps rely on the head-checked commit path. `SelfRuntime` maintains a
+head-checked incremental state cache and uses `Store::verify_head` ($O(1)$ tip
+and parent-link verification) when the head matches, falling back to full replay
+if an external writer advanced the head. `Store::set_transition_guard` allows a
+host to enforce commit-time transition invariants inside `Store::commit` before
+any SQL mutation. Call `Store::verify` for a
 full forensic check. This runtime-local cache assumes subsequent writers use the
 trusted Store API; it is not a persistent verified-prefix cache or detection of
 out-of-band file changes. Reopening a runtime verifies again. The verifier checks

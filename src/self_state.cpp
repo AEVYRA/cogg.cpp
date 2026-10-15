@@ -167,6 +167,42 @@ json self_profile(const json& data) {
 json inspect_self(Store& store, const std::string& subject) {
     json view; (void)replay(store, subject, view); return view;
 }
+void install_self_guard(Store& store) {
+    store.set_transition_guard([](const std::string& subject, const Snapshot& snap,
+                                  const json& admission, const Proposal& proposal) {
+        (void)subject;
+        if (!snap.memory.contains("self.profile")) {
+            need(!protected_write(proposal), "self.* keys require a self-state subject");
+            return;
+        }
+        json packet = nullptr;
+        for (const auto& input : admission.value("inputs", json::array())) {
+            if (input.at("body").at("producer") == producer) {
+                need(packet.is_null(), "duplicate self input");
+                need(input.at("body").at("kind") == "observation", "invalid self input kind");
+                packet = input.at("body").at("content");
+            }
+        }
+        if (packet.is_null()) {
+            need(!protected_write(proposal), "unguarded self mutation rejected by transition guard");
+            return;
+        }
+        fields(packet, {"schema", "contract", "view", "grant"});
+        const auto& view = packet.at("view");
+        const auto& g = packet.at("grant");
+        const auto& admitted_occasion = admission.at("temporal").at("admission").at("occasion").at("id");
+        grant_valid(g, view, admitted_occasion);
+        State state;
+        state.profile = view.at("profile");
+        state.profile_version = view.at("profile_version").get<std::string>();
+        for (const auto& task : view.at("open")) {
+            state.tasks[task.at("key").get<std::string>()] = {
+                {"text", task.at("text")}, {"status", task.at("status")}, {"version", task.at("version")}};
+        }
+        apply(state, proposal, g, std::string(64, '0'));
+        (void)view_of(state, subject, std::string(64, '0'));
+    });
+}
 json self_grant(const json& view, const json& occasion, const json& create, const json& settle, const json& profile) {
     json grant = {{"schema", "cogg:self-grant/v1"}, {"subject", view.at("subject")}, {"head", view.at("head")},
         {"occasion", occasion}, {"create", create}, {"settle", settle}, {"profile", profile}};
@@ -181,7 +217,18 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
     for (const auto& input : inputs) need(input.at("body").at("producer") != producer, "self input is host-generated");
     SelfResult result;
     if (cancelled && cancelled()) { result.status = "cancelled"; return result; }
-    json view; auto state = replay(store_, subject, view);
+    const auto current_head = store_.snapshot(subject).head;
+    State state;
+    json view;
+    if (auto it = cache_.find(subject); it != cache_.end() && it->second.head == current_head) {
+        store_.verify_head(subject);
+        state = State{it->second.profile, it->second.profile_version, it->second.tasks};
+        view = it->second.view;
+    } else {
+        state = replay(store_, subject, view);
+        cache_[subject] = CachedSubject{view.at("head").get<std::string>(), state.profile,
+                                        state.profile_version, state.tasks, view};
+    }
     const auto schedule = store_.schedule(subject, now);
     result.schedule = schedule;
     if (schedule.at("occasion").is_null()) { result.status = "waiting"; return result; }
@@ -194,52 +241,37 @@ SelfResult SelfRuntime::step(const std::string& subject, millis now, const json&
         [&](const Present& p) { return backend_.context_fits(p); }, execution_, context);
     if (!a) { result.status = "waiting"; return result; }
     result.attempt = a->id;
-    const auto start = std::chrono::steady_clock::now();
-    auto elapsed = [&] { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(); };
-    auto fail = [&](const char* status, FailureScope scope = FailureScope::transient) {
-        if (auto disposed = store_.fail(a->id, status, scope, now + elapsed())) { result.snapshot = disposed; result.status = "disposed"; }
-        else result.status = status;
+    Proposal validated_proposal;
+    bool has_validated_proposal = false;
+    ProposalGuard guard = [&](const Proposal& p) -> std::optional<std::string> {
+        try {
+            State preview = state;
+            apply(preview, p, g, std::string(64, '0'));
+            (void)view_of(preview, subject, std::string(64, '0'));
+            validated_proposal = p;
+            has_validated_proposal = true;
+            return std::nullopt;
+        } catch (const Error&) {
+            return std::string("self_rejected");
+        }
     };
-    Outcome outcome;
-    const char* failure = nullptr;
-    auto scope = FailureScope::transient;
-    try { outcome = backend_.respond_attempt(*a, timeout, cancelled); validate_backend_outcome(outcome); }
-    catch (const BackendFailure& error) {
-        scope = failure_scope(error.kind);
-        switch (error.kind) {
-            case FailureKind::transport: failure = "transport_failed"; break;
-            case FailureKind::timeout: failure = "timeout"; break;
-            case FailureKind::invalid_output: failure = "invalid_output"; break;
-            case FailureKind::credentials: failure = "credentials_unavailable"; break;
-            default: failure = "backend_failed";
-        }
+    auto step_res = execute_attempt(store_, backend_, *a, now, execution_, timeout, cancelled, guard, {}, true, false);
+    result.outcome = step_res.outcome;
+    result.snapshot = step_res.snapshot;
+    result.status = step_res.status;
+    result.maintenance_error = step_res.maintenance_error;
+    if (step_res.status == "committed" && step_res.snapshot && has_validated_proposal) {
+        apply(state, validated_proposal, g, step_res.snapshot->head);
+        auto next_view = view_of(state, subject, step_res.snapshot->head);
+        cache_[subject] = CachedSubject{step_res.snapshot->head, state.profile,
+                                        state.profile_version, state.tasks, std::move(next_view)};
+    } else if (step_res.status == "disposed" && step_res.snapshot) {
+        auto next_view = view_of(state, subject, step_res.snapshot->head);
+        cache_[subject] = CachedSubject{step_res.snapshot->head, state.profile,
+                                        state.profile_version, state.tasks, std::move(next_view)};
+    } else if (step_res.status == "conflict") {
+        cache_.erase(subject);
     }
-    catch (...) { failure = "backend_failed"; }
-    // Cancellation/deadline remain authoritative even when the backend throws.
-    // Never persist an untrusted provider exception message.
-    if (cancelled && cancelled()) { fail("cancelled"); return result; }
-    const auto duration = elapsed();
-    if (duration >= timeout) { fail("timeout"); return result; }
-    if (failure) { fail(failure, scope); return result; }
-    result.outcome = outcome_json(outcome);
-    if (const auto* p = std::get_if<Proposal>(&outcome)) {
-        try { apply(state, *p, g, std::string(64, '0')); (void)view_of(state, subject, std::string(64, '0')); }
-        catch (const Error&) { fail("self_rejected", FailureScope::occasion); return result; }
-        catch (...) { fail("self_validation_failed"); throw; }
-    }
-    try {
-        if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
-            store_.abstain(a->id, *abstention, backend_.telemetry()); result.status = "abstained"; return result;
-        }
-        const auto& p = std::get<Proposal>(outcome);
-        // Store clamps commit wall against admission and monotonic inference duration.
-        result.snapshot = store_.commit(a->id, p, now, {}, duration, make_emission(*a, execution_, p, backend_.telemetry()));
-    } catch (const ContextOverflow&) { fail("memory_pressure"); return result; }
-    catch (const Conflict&) { fail("conflict"); return result; }
-    catch (...) { fail("commit_rejected"); throw; }
-    result.status = "committed";
-    try { backend_.committed(a->present, *result.snapshot); }
-    catch (...) { result.maintenance_error = "backend maintenance failed"; }
     return result;
 }
 } // namespace cogg

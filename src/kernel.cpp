@@ -471,8 +471,9 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
         auto candidates = detail::memory_candidates(db, subject, policy);
         detail::project_memory(present, candidates, policy, fits);
         body["context"] = {{"memory", present.working_memory}, {"view", present.memory_view}};
-        if (policy.strategy == "balanced") body["capacity_policy"] = {{"schema", "cogg:memory-capacity/v1"},
-            {"max_items", policy.max_items}, {"max_bytes", policy.max_bytes}};
+        if (policy.strategy == "balanced" || policy.strategy == "hybrid" || policy.strategy == "semantic")
+            body["capacity_policy"] = {{"schema", "cogg:memory-capacity/v1"},
+                {"max_items", policy.max_items}, {"max_bytes", policy.max_bytes}};
     }
     if (fits && !fits(present)) throw ContextOverflow("admitted context exceeds backend capacity");
     const auto id = hash(body);
@@ -483,6 +484,8 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
     tx.commit();
     return Attempt{id, present};
 }
+
+void Store::set_transition_guard(TransitionGuard guard) { transition_guard_ = std::move(guard); }
 
 Snapshot Store::commit(const std::string& attempt, const Proposal& proposal, millis now,
                        const std::function<void(CommitPoint)>& hook, std::optional<millis> inference_elapsed_ms, const json& emission) {
@@ -520,6 +523,9 @@ Snapshot Store::commit_locked(const std::string& attempt, const Proposal& propos
     Statement oq(db, "SELECT consumed FROM occasions WHERE id=?");
     oq.bind(1, oid); oq.row();
     if (!oq.text(0).empty()) throw Conflict("occasion already consumed");
+    if (disposition.is_null() && transition_guard_) {
+        transition_guard_(subject, s, a, proposal);
+    }
     require(s.tick < std::numeric_limits<std::int64_t>::max(), "tick exhausted");
     const auto tick = s.tick + 1;
     // Commit wall cannot move behind admission, including a recovered attempt.
@@ -652,6 +658,16 @@ std::optional<Snapshot> Store::fail(const std::string& attempt, const std::strin
 FailureScope failure_scope(FailureKind kind) {
     return kind == FailureKind::invalid_output ?
         FailureScope::occasion : FailureScope::transient;
+}
+const char* failure_reason(FailureKind kind) {
+    switch (kind) {
+        case FailureKind::transport: return "transport_failed";
+        case FailureKind::timeout: return "timeout";
+        case FailureKind::invalid_output: return "invalid_output";
+        case FailureKind::credentials: return "credentials_unavailable";
+        case FailureKind::backend:
+        default: return "backend_failed";
+    }
 }
 json Store::schedule(const std::string& subject, millis now) {
     check_time(now);
@@ -937,6 +953,28 @@ void Store::verify_impl(const std::string& subject, bool compare_memory_index) {
     detail::memory_verify(db, subject, compare_memory_index);
     tx.commit();
 }
+void Store::verify_head(const std::string& subject) {
+    auto* db = impl_->db;
+    Transaction tx(db, false);
+    const auto s = impl_->snapshot(subject);
+    Statement q(db, "SELECT tick,body FROM commits WHERE id=? AND subject=?");
+    q.bind(1, s.head).bind(2, subject);
+    require(q.row(), "head commit missing");
+    const auto b = json::parse(q.text(1));
+    require(q.number(0) == s.tick && b.at("tick") == s.tick && b.at("subject") == subject &&
+            hash(b) == s.head && b.at("memory") == s.memory &&
+            b.at("wake_at") == optional_time(s.wake_at), "head commit projection mismatch");
+    if (s.tick > 0) {
+        const auto parent = b.at("parent").get<std::string>();
+        Statement pq(db, "SELECT tick FROM commits WHERE id=? AND subject=?");
+        pq.bind(1, parent).bind(2, subject);
+        require(pq.row() && pq.number(0) == s.tick - 1, "head parent link mismatch");
+        Statement aq(db, "SELECT status,parent FROM attempts WHERE id=? AND subject=?");
+        aq.bind(1, b.at("attempt").get<std::string>()).bind(2, subject);
+        require(aq.row() && aq.text(0) == "committed" && aq.text(1) == parent, "head attempt mismatch");
+    }
+    tx.commit();
+}
 json Store::record(const std::string& id) {
     Statement q(impl_->db, "SELECT body FROM commits WHERE id=?");
     q.bind(1, id);
@@ -945,11 +983,159 @@ json Store::record(const std::string& id) {
     require(hash(body) == id, "record hash mismatch");
     return body;
 }
+StepResult execute_attempt(Store& store, Backend& backend, const Attempt& attempt, millis now,
+                           const json& execution, millis timeout_ms,
+                           const std::function<bool()>& cancelled,
+                           const ProposalGuard& proposal_guard,
+                           const std::function<millis()>& wall_clock,
+                           bool redact_diagnostics,
+                           bool rethrow_commit_overflow) {
+    const auto started = std::chrono::steady_clock::now();
+    auto elapsed = [&]() -> millis {
+        return std::max<millis>(0, std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started).count());
+    };
+    auto current_wall = [&]() -> millis {
+        return wall_clock ? wall_clock() : add(now, elapsed());
+    };
+    StepResult out;
+    out.attempt_id = attempt.id;
+    auto settle_failure = [&](const std::string& reason, FailureScope scope) {
+        out.error_reason = reason;
+        if ( auto disposed = store.fail(attempt.id, reason, scope, current_wall()) ) {
+            out.status = "disposed";
+            out.snapshot = std::move(disposed);
+        } else {
+            out.status = reason;
+        }
+    };
+    Outcome outcome;
+    std::string failure;
+    auto scope = FailureScope::transient;
+    std::exception_ptr captured = nullptr;
+    try {
+        if (timeout_ms <= 0) throw BackendFailure("timeout", FailureKind::timeout);
+        outcome = backend.respond_attempt(attempt, timeout_ms, cancelled);
+        validate_backend_outcome(outcome);
+    } catch (const BackendFailure& error) {
+        scope = failure_scope(error.kind);
+        failure = redact_diagnostics ? failure_reason(error.kind) : error.what();
+        captured = std::current_exception();
+    } catch (const ContextOverflow& error) {
+        scope = FailureScope::transient;
+        failure = redact_diagnostics ? "memory_pressure" : error.what();
+        captured = std::current_exception();
+    } catch (const std::exception& error) {
+        scope = FailureScope::transient;
+        failure = redact_diagnostics ? "backend_failed" : error.what();
+        captured = std::current_exception();
+    } catch (...) {
+        scope = FailureScope::transient;
+        failure = redact_diagnostics ? "backend_failed" : "backend failed";
+        captured = std::current_exception();
+    }
+    const auto duration = elapsed();
+    if (cancelled && cancelled()) {
+        settle_failure("cancelled", FailureScope::transient);
+        return out;
+    }
+    if (duration >= timeout_ms) {
+        settle_failure("timeout", FailureScope::transient);
+        return out;
+    }
+    if (!failure.empty()) {
+        settle_failure(failure, scope);
+        out.exception = captured;
+        return out;
+    }
+    out.outcome = outcome_json(outcome);
+    if (const auto* p = std::get_if<Proposal>(&outcome); p && proposal_guard) {
+        if (const auto rejected = proposal_guard(*p)) {
+            settle_failure(*rejected, FailureScope::occasion);
+            return out;
+        }
+    }
+    try {
+        if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
+            out.abstention_receipt = store.abstain(attempt.id, *abstention, backend.telemetry());
+            out.abstention = *abstention;
+            out.status = "abstained";
+            return out;
+        }
+        const auto& proposal = std::get<Proposal>(outcome);
+        const json emission = execution.is_null() ?
+            json(nullptr) : make_emission(attempt, execution, proposal, backend.telemetry());
+        out.snapshot = store.commit(attempt.id, proposal, current_wall(), {}, duration, emission);
+    } catch (const Conflict&) {
+        if (redact_diagnostics) {
+            settle_failure("conflict", FailureScope::transient);
+        } else {
+            store.fail(attempt.id, "stale transition");
+        }
+        out.status = "conflict";
+        out.error_reason = "conflict";
+        return out;
+    } catch (const ContextOverflow& error) {
+        if (!redact_diagnostics) {
+            settle_failure(error.what(), FailureScope::transient);
+            out.exception = std::current_exception();
+            return out;
+        }
+        if (rethrow_commit_overflow) {
+            settle_failure("commit_rejected", FailureScope::transient);
+            throw;
+        }
+        settle_failure("memory_pressure", FailureScope::transient);
+        return out;
+    } catch (const std::exception& error) {
+        if (!redact_diagnostics) {
+            settle_failure(error.what(), FailureScope::transient);
+            out.exception = std::current_exception();
+            return out;
+        }
+        settle_failure("commit_rejected", FailureScope::transient);
+        throw;
+    } catch (...) {
+        if (!redact_diagnostics) {
+            settle_failure("backend failed", FailureScope::transient);
+            out.exception = std::current_exception();
+            return out;
+        }
+        settle_failure("commit_rejected", FailureScope::transient);
+        throw;
+    }
+    out.status = "committed";
+    try { backend.committed(attempt.present, *out.snapshot); }
+    catch (const std::exception& error) {
+        out.maintenance_error = redact_diagnostics ? "backend maintenance failed" : error.what();
+    } catch (...) {
+        out.maintenance_error = "backend maintenance failed";
+    }
+    return out;
+}
 void Runtime::fail_scoped(const std::string& attempt, const std::string& reason, FailureScope scope,
                           millis now, std::chrono::steady_clock::time_point started) {
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started).count();
     disposed_ = store_.fail(attempt, reason, scope, wall_clock_ ? wall_clock_() : add(now, elapsed));
+}
+StepResult Runtime::step_result(const std::string& subject, millis now, const json& context,
+                                millis timeout_ms, const std::function<bool()>& cancelled) {
+    abstention_.reset();
+    disposed_.reset();
+    maintenance_error_.clear();
+    if (!verified_.count(subject)) {
+        store_.verify(subject);
+        verified_.insert(subject);
+    }
+    auto a = store_.admit(subject, backend_.name(), now, backend_.memory_policy(),
+                          [&](const Present& p) { return backend_.context_fits(p); }, nullptr, context);
+    if (!a) return StepResult{};
+    auto res = execute_attempt(store_, backend_, *a, now, nullptr, timeout_ms, cancelled, {}, wall_clock_, true, false);
+    abstention_ = res.abstention;
+    if (res.status == "disposed") disposed_ = res.snapshot;
+    maintenance_error_ = res.maintenance_error;
+    return res;
 }
 std::optional<Snapshot> Runtime::step(const std::string& subject, millis now, const json& context) {
     abstention_.reset();
@@ -962,40 +1148,13 @@ std::optional<Snapshot> Runtime::step(const std::string& subject, millis now, co
     auto a = store_.admit(subject, backend_.name(), now, backend_.memory_policy(),
                           [&](const Present& p) { return backend_.context_fits(p); }, nullptr, context);
     if (!a) return std::nullopt;
-    const auto started = std::chrono::steady_clock::now();
-    Snapshot result;
-    try {
-        auto outcome = backend_.respond_attempt(*a, 3600000, {});
-        validate_backend_outcome(outcome);
-        if (const auto* abstention = std::get_if<Abstention>(&outcome)) {
-            store_.abstain(a->id, *abstention, backend_.telemetry());
-            abstention_ = *abstention; return std::nullopt;
-        }
-        const auto& p = std::get<Proposal>(outcome);
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - started).count();
-        result = store_.commit(a->id, p, wall_clock_ ? wall_clock_() : add(now, elapsed), {}, elapsed);
-    } catch (const Conflict&) {
-        store_.fail(a->id, "stale transition");
-        return std::nullopt;
-    } catch (const BackendFailure& e) {
-        fail_scoped(a->id, e.what(), failure_scope(e.kind), now, started); throw;
-    } catch (const ContextOverflow& e) {
-        // Memory pressure is cured by maintenance, never by discarding the message.
-        fail_scoped(a->id, e.what(), FailureScope::transient, now, started); throw;
-    } catch (const std::exception& e) {
-        // Unknown backend, storage and commit failures are not evidence against
-        // the occasion. Hosts may explicitly classify a known policy rejection.
-        fail_scoped(a->id, e.what(), FailureScope::transient, now, started); throw;
-    } catch (...) {
-        fail_scoped(a->id, "backend failed", FailureScope::transient, now, started); throw;
-    }
-    // A cache is not part of the subject transaction. Do not turn a cache error
-    // into a failed inference or conceal a successful durable commit from callers.
-    try { backend_.committed(a->present, result); }
-    catch (const std::exception& e) { maintenance_error_ = e.what(); }
-    catch (...) { maintenance_error_ = "backend maintenance failed"; }
-    return result;
+    auto res = execute_attempt(store_, backend_, *a, now, nullptr, 3600000, {}, {}, wall_clock_, false, false);
+    abstention_ = res.abstention;
+    if (res.status == "disposed") disposed_ = res.snapshot;
+    maintenance_error_ = res.maintenance_error;
+    if (res.exception) std::rethrow_exception(res.exception);
+    if (res.status == "committed") return res.snapshot;
+    return std::nullopt;
 }
 json Store::recall(const std::string& subject, MemoryPolicy policy) {
     verify(subject);
