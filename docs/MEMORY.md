@@ -81,7 +81,7 @@ not SQLite file shrinking or archival retention enforcement.
 ## Retrieval and finite context
 
 `Store::recall(subject, MemoryPolicy)` supports `balanced` (default), `hybrid`,
-`semantic`, `lexical`, `recent` and `task_maintenance`. `balanced`, `hybrid` and
+`semantic`, `semantic_only`, `lexical`, `recent` and `task_maintenance`. `balanced`, `hybrid` and
 `semantic` preserve current open tasks, then interleave lexical (BM25),
 semantic/synonym (`MemoryPolicy::synonyms`, built-in concept clusters, and optional
 `MemoryPolicy::semantic_scorer`), procedural (`procedure` and `prospective` notes)
@@ -93,6 +93,12 @@ ordinarily excludes covered originals; lexical and semantic lookup retain access
 to them. Default recall excludes superseded, retracted and stale-summary entries.
 Historical recall labels each entry with `current` and `summary_stale` at the
 selected head.
+
+`semantic_candidates` can supply bounded, subject-scoped deposit IDs from an
+external index of the full history. Store revalidates every ID and its current
+status. `semantic_only` selects this lane plus protected open tasks, with no
+fallback when the provider/scorer returns nothing. See [Neural memory](NEURAL_MEMORY.md)
+for the callback contract and optional native scorer.
 
 SQLite FTS5 supplies Unicode lexical matching. Input is split into at most 32
 quoted terms joined by OR; it never becomes raw SQL or unescaped FTS syntax.

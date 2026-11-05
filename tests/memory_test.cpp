@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <limits>
 #include <sqlite3.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -314,6 +315,49 @@ void procedural_and_semantic_retrieval() {
     s.verify("s");
     std::cout << "PASS procedural/prospective memory, synonym expansion, hybrid/semantic lanes\n";
 }
+void indexed_semantic_memory() {
+    Temp tmp; Store s(tmp.db()); s.create("s", {1,10000,1000000}, 0);
+    write(s, {{"old","A precise archived instruction.","fact"},
+              {"keep","An open obligation.","task","open"}}, 1);
+    const auto old=entry(recall(s,"archived"),"old").at("id").get<std::string>();
+    for(int i=0;i<270;++i)write(s,{{"n"+std::to_string(i),"Routine noise.","episode"}},2+i);
+    MemoryPolicy p;p.strategy="semantic_only";p.query="no literal match";p.max_items=4;p.max_bytes=3200;
+    p.semantic_candidates=[&](const std::string &subject,const std::string &query,std::size_t limit){
+        check(subject=="s"&&query==p.query&&limit==64,"provider arguments");return std::vector<std::string>{old,old};};
+    auto v=s.recall("s",p);check(has(v,"old")&&has(v,"keep"),"indexed old record or task lost");
+    check(v.at("view").at("items").size()==2,"duplicate index ID repeated");
+    s.submit("s","index-admit",{{"text","no literal match"}},280);
+    auto a=s.admit("s","fixture",280,p);check(a&&has(json{{"view",a->present.memory_view}},"old"),"indexed admission");
+    s.commit(a->id,Proposal{},280);
+    p.semantic_scorer=[](const json&,const std::string&){return 0.0;};
+    v=s.recall("s",p);check(!has(v,"old")&&has(v,"keep"),"abstention hid task or fell back");
+    p.semantic_scorer=[](const json&,const std::string&){return std::numeric_limits<double>::quiet_NaN();};
+    rejects([&]{s.recall("s",p);},"nonfinite semantic score");p.semantic_scorer={};
+    write(s,{{"old","The corrected instruction.","fact"}},281);
+    check(!has(s.recall("s",p),"old"),"stale index revived old version");
+    p.history=true;check(has(s.recall("s",p),"old"),"explicit historical index inaccessible");p.history=false;
+    p.semantic_candidates=[](const std::string&,const std::string&,std::size_t limit){return std::vector<std::string>(limit+1,"x");};
+    rejects([&]{s.recall("s",p);},"semantic candidate limit exceeded");
+    p.semantic_candidates=[](const std::string&,const std::string&,std::size_t){return std::vector<std::string>{"unknown"};};
+    rejects([&]{s.recall("s",p);},"unknown or foreign memory source");
+    s.create("other",{1,10000,1000000},0);s.submit("other","one",{{"text","fixture"}},1);
+    auto oa=s.admit("other","fixture",1);check(oa.has_value(),"other admission");
+    Proposal op;op.notes={{"private","Another subject's record.","fact"}};s.commit(oa->id,op,1);
+    MemoryPolicy other_policy;other_policy.query="private";
+    const auto foreign=s.recall("other",other_policy).at("view").at("items")[0].at("id").get<std::string>();
+    p.semantic_candidates=[&](const std::string&,const std::string&,std::size_t){return std::vector<std::string>{foreign};};
+    rejects([&]{s.recall("s",p);},"unknown or foreign memory source");
+    p.semantic_candidates=[](const std::string&,const std::string&,std::size_t){return std::vector<std::string>{};};
+    p.max_items=1;
+    s.submit("s","capacity-index",{{"text","fixture"}},282);
+    auto cap=s.admit("s","fixture",282,p);check(cap.has_value(),"capacity admission");
+    Proposal more;more.notes={{"extra-task","Another open task.","task","open"}};
+    const auto before=s.snapshot("s").head;
+    rejects([&]{s.commit(cap->id,more,282);},"memory pressure");
+    check(s.snapshot("s").head==before,"capacity failure advanced history");s.fail(cap->id,"capacity");
+    s.rebuild_memory("s");s.verify("s");
+    std::cout<<"PASS indexed semantic memory, stale filtering, abstention, admission and tasks\n";
+}
 } // namespace
 int main() {
     try {
@@ -322,6 +366,7 @@ int main() {
         lifecycle();
         boundaries();
         procedural_and_semantic_retrieval();
+        indexed_semantic_memory();
         crash();
         return 0;
     } catch (const std::exception &e) {

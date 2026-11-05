@@ -91,6 +91,7 @@ tests. [Dockerfile.build](Dockerfile.build) provides a Debian build environment.
 | `COGG_TUI=ON` | Linux host and terminal client; downloads pinned FTXUI |
 | `COGG_PERCEPTION=ON` | POSIX image host module; requires HTTP |
 | `COGG_SANITIZE=ON` | AddressSanitizer and UndefinedBehaviorSanitizer |
+| `COGG_NEURAL_MEMORY=ON` | Optional native scorer for pre-encoded memory/query pairs; [contract and study](docs/NEURAL_MEMORY.md) |
 
 Options default to OFF. See [validation](docs/VALIDATION.md) for the full CI
 configuration and real-model tests.

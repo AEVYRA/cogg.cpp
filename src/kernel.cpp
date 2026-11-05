@@ -471,7 +471,7 @@ std::optional<Attempt> Store::admit(const std::string& subject, const std::strin
         auto candidates = detail::memory_candidates(db, subject, policy);
         detail::project_memory(present, candidates, policy, fits);
         body["context"] = {{"memory", present.working_memory}, {"view", present.memory_view}};
-        if (policy.strategy == "balanced" || policy.strategy == "hybrid" || policy.strategy == "semantic")
+        if (policy.strategy == "balanced" || policy.strategy == "hybrid" || policy.strategy == "semantic" || policy.strategy == "semantic_only")
             body["capacity_policy"] = {{"schema", "cogg:memory-capacity/v1"},
                 {"max_items", policy.max_items}, {"max_bytes", policy.max_bytes}};
     }

@@ -10,6 +10,7 @@ Start with the [build and CLI quick start](../README.md), then use the
 | [Checkpoints](CHECKPOINTS.md) | Compatible KV restoration and reconstruction |
 | [Scheduling](SCHEDULING.md) | Model-requested waking and observation protocol |
 | [Memory](MEMORY.md) | Typed deposits, retrieval and compaction |
+| [Neural memory](NEURAL_MEMORY.md) | Optional native applicability scorer and bounded full-history candidate provider |
 | [Executors](EXECUTORS.md) | HTTP adapters, sessions and bounded routing |
 | [Composition](COMPOSITION.md) | Abstention and host-provided evidence |
 | [Self-state](SELF_STATE.md) | Optional guarded profile and commitments |

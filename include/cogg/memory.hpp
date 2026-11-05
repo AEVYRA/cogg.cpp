@@ -36,6 +36,15 @@ struct MemoryPolicy {
     std::map<std::string, std::vector<std::string>> synonyms;
     // Optional host-supplied semantic scorer returning > 0.0 for relevant entries.
     std::function<double(const nlohmann::json &entry, const std::string &query)> semantic_scorer;
+    // Optional index over the complete history. Return <= limit deposit IDs in
+    // descending relevance order, for this subject only. Called synchronously
+    // under the Store lock: do not reenter Store or perform unbounded work.
+    // Store resolves the IDs and filters superseded/retracted/stale records.
+    // Unknown/foreign IDs and oversized responses are errors; duplicates collapse.
+    std::function<std::vector<std::string>(const std::string &subject,
+        const std::string &query, std::size_t limit)> semantic_candidates;
+    // Use strategy="semantic_only" for this lane alone, plus protected open
+    // tasks. An empty result is meaningful: no lexical/recent fallback is added.
 };
 nlohmann::json memory_note_json(const MemoryNote &note);
 MemoryNote parse_memory_note(const nlohmann::json &note);

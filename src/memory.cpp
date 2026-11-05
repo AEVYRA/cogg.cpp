@@ -2,6 +2,7 @@
 #include "cogg/output_limits.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <map>
 #include <openssl/evp.h>
 #include <set>
@@ -73,7 +74,7 @@ void policy_ok(const MemoryPolicy &p) {
              p.candidate_limit >= p.max_items && p.candidate_limit <= 512 && p.query.size() <= 65536,
          "invalid memory policy");
     need(p.strategy == "balanced" || p.strategy == "hybrid" || p.strategy == "semantic" ||
-             p.strategy == "lexical" || p.strategy == "recent" || p.strategy == "task_maintenance",
+             p.strategy == "semantic_only" || p.strategy == "lexical" || p.strategy == "recent" || p.strategy == "task_maintenance",
          "unknown memory strategy");
     need(p.strategy == "task_maintenance" ? (!p.maintenance_ids.empty() && p.maintenance_ids.size() <= 8 &&
          std::set<std::string>(p.maintenance_ids.begin(), p.maintenance_ids.end()).size() == p.maintenance_ids.size()) : p.maintenance_ids.empty(),
@@ -472,7 +473,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
     };
     const auto limit = static_cast<std::int64_t>(p.candidate_limit);
     const bool protects_tasks =
-        (p.strategy == "balanced" || p.strategy == "hybrid" || p.strategy == "semantic");
+        (p.strategy == "balanced" || p.strategy == "hybrid" || p.strategy == "semantic" || p.strategy == "semantic_only");
     if (protects_tasks) {
         Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " + current_filter +
                     " AND json_extract(e.body,'$.note.type')='task' AND "
@@ -492,7 +493,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
         }
     }
     auto query = terms(p.query);
-    if (!query.empty() && p.strategy != "recent" && p.strategy != "task_maintenance") {
+    if (!query.empty() && p.strategy != "recent" && p.strategy != "task_maintenance" && p.strategy != "semantic_only") {
         Q q(db, "SELECT e.body FROM memory_fts JOIN memory_entries e ON e.id=memory_fts.id WHERE memory_fts "
                 "MATCH ? AND e.subject=? AND " +
                     (p.history ? "1" : current_filter) +
@@ -501,10 +502,29 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
         collect(q, lex);
     }
     const bool run_semantic =
-        (p.strategy == "hybrid" || p.strategy == "semantic" ||
-         (p.strategy == "balanced" && (lex.empty() || !p.synonyms.empty() || bool(p.semantic_scorer))));
+        (p.strategy == "hybrid" || p.strategy == "semantic" || p.strategy == "semantic_only" ||
+         (p.strategy == "balanced" && (lex.empty() || !p.synonyms.empty() || bool(p.semantic_scorer) || bool(p.semantic_candidates))));
     if (run_semantic) {
-        if (p.semantic_scorer) {
+        if (p.semantic_candidates) {
+            const auto ids = p.semantic_candidates(subject, p.query, p.candidate_limit);
+            need(ids.size() <= p.candidate_limit, "semantic candidate limit exceeded");
+            std::set<std::string> seen_ids;
+            std::vector<std::pair<double, json>> scored;
+            for (const auto &id : ids) {
+                need(!id.empty() && id.size() <= 128, "invalid semantic candidate ID");
+                if (!seen_ids.insert(id).second) continue;
+                const auto body = get(db, subject, id); // Also rejects foreign/unknown IDs.
+                auto w = wire_at(db, subject, body, at);
+                if (!p.history && (!w.at("current").get<bool>() ||
+                    w.at("status") == "retracted" || w.at("summary_stale").get<bool>())) continue;
+                const double sc = p.semantic_scorer ? p.semantic_scorer(w, p.query) : 1.0;
+                need(std::isfinite(sc), "nonfinite semantic score");
+                if (sc > 0.0) scored.emplace_back(sc, std::move(w));
+            }
+            std::stable_sort(scored.begin(), scored.end(),
+                [](const auto &a, const auto &b) { return a.first > b.first; });
+            for (auto &x : scored) sem.push_back(std::move(x.second));
+        } else if (p.semantic_scorer) {
             Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " +
                         (p.history ? "1" : current_filter + " AND " + uncovered_filter) +
                         " ORDER BY e.tick DESC,e.id LIMIT ?");
@@ -513,6 +533,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
             while (q.row()) {
                 auto w = wire_at(db, subject, json::parse(q.str(0)), at);
                 const double sc = p.semantic_scorer(w, p.query);
+                need(std::isfinite(sc), "nonfinite semantic score");
                 if (sc > 0.0)
                     scored.emplace_back(sc, std::move(w));
             }
@@ -522,7 +543,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
                 sem.push_back(std::move(scored[i].second));
         }
         auto exp_query = expanded_terms(p.query, p.synonyms);
-        if (!exp_query.empty()) {
+        if (!exp_query.empty() && p.strategy != "semantic_only") {
             Q q(db, "SELECT e.body FROM memory_fts JOIN memory_entries e ON e.id=memory_fts.id WHERE "
                     "memory_fts MATCH ? AND e.subject=? AND " +
                         (p.history ? "1" : current_filter) +
@@ -531,7 +552,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
             collect(q, sem);
         }
     }
-    if (protects_tasks) {
+    if (protects_tasks && p.strategy != "semantic_only") {
         Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " +
                     (p.history ? "1" : current_filter) +
                     " AND json_extract(e.body,'$.note.type') IN ('procedure','prospective') "
@@ -539,7 +560,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
         q.bind(1, subject).bind(2, limit);
         collect(q, proc);
     }
-    if (p.strategy != "lexical" && p.strategy != "semantic" && p.strategy != "task_maintenance") {
+    if (p.strategy != "lexical" && p.strategy != "semantic" && p.strategy != "semantic_only" && p.strategy != "task_maintenance") {
         Q q(db, "SELECT e.body FROM memory_entries e WHERE e.subject=? AND " +
                     (p.history ? "1" : current_filter + " AND " + uncovered_filter) +
                     " ORDER BY e.tick DESC,e.id LIMIT ?");
@@ -557,7 +578,7 @@ json memory_candidates(sqlite3 *db, const std::string &subject, const MemoryPoli
         add(x, true, "open_task");
     const auto rounds = std::max({lex.size(), sem.size(), proc.size(), recent.size()});
     for (std::size_t i = 0; i < rounds; ++i) {
-        if (p.strategy == "semantic") {
+        if (p.strategy == "semantic" || p.strategy == "semantic_only") {
             if (i < sem.size())
                 add(sem[i], false, "semantic");
             if (i < lex.size())
