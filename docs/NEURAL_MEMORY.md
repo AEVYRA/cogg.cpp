@@ -10,6 +10,12 @@ Supporting and opposing evidence, including qualifications, can all be useful.
 It does not decide whether an action is permitted or certify a statement.
 The probability is model-specific and needs calibration on the intended workload.
 
+The first archival transfer check **failed**: the frozen head returned 11/33
+expected sources, versus 17/33 for frozen cosine and 25/33 for balanced retrieval.
+The synthetic result below does not establish effectiveness on natural history.
+See [source-grounded replay](SOURCE_MEMORY_REPLAY.md) for the reproducible
+provenance/version checks, diagnostics and limitations.
+
 ## Using a scorer
 
 ```cpp
@@ -160,3 +166,5 @@ version-bound representations and source history separate from derived state.
 cogg's exact transaction/version rules remain authoritative.
 
 <!-- <<aevyra:ty v1 wall=2026-11-05T11:33:36Z field=5191 file=1 art=cogg:docs/NEURAL_MEMORY.md hash=cc36a8d409a04fe7d6a62f7463292bea473454461d582618d59c9a66989eb927 ref=f7553e796b8a8efb>> -->
+
+<!-- <<aevyra:ty v1 wall=2026-11-05T13:29:40Z field=5217 file=2 art=cogg:docs/NEURAL_MEMORY.md hash=ce2a5f06549ca85081070e9bf2342fe1c456207762639ed6168e4500b811bba8 ref=0930522482cc37e0>> -->
